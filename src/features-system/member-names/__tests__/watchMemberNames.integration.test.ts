@@ -4,9 +4,26 @@ import { DISCORD_CLIENT } from '../../../discordClient';
 import { TestDiscord, type ServerGuild, type ServerMember } from '../../../shared/__tests__/support/testDiscord';
 import { database } from '../../data-persistence/database';
 import { migrateTestDatabase } from '../../data-persistence/__tests__/support/migrateTestDatabase';
+import { memberAvatarsRepo } from '../data/memberAvatarsRepo';
 import { memberNamesRepo } from '../data/memberNamesRepo';
 import { watchMemberNames } from '../initMemberNames';
+import { memberAvatarDownloads } from '../memberAvatarDownloads';
 import { memberNamesQueue } from '../memberNamesQueue';
+
+/** Discord's CDN, stood in for: every avatar it is asked for is this PNG. */
+const AVATAR_PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7, 7]);
+const CDN_AVATARS = 'https://cdn.discordapp.com/avatars/';
+const cdnFetch = vi.fn(async (input: string | URL | Request) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (!url.startsWith(CDN_AVATARS)) throw new Error(`No network in this test: ${url}`);
+    return new Response(AVATAR_PNG, { status: 200, headers: { 'Content-Type': 'image/png' } });
+});
+
+/** Every avatar download the listeners queued, finished; then the hash held for `userId`. */
+async function heldAvatar(userId: string): Promise<string | undefined> {
+    await memberAvatarDownloads.whenIdle();
+    return (await memberAvatarsRepo.storedHashes([userId])).get(userId);
+}
 
 /**
  * The startup sweep and the gateway listeners, driven through the bot's own `DISCORD_CLIENT`
@@ -40,13 +57,14 @@ async function eventually(guildId: string, userId: string, expected: Record<stri
 }
 
 beforeAll(async () => {
+    vi.stubGlobal('fetch', cdnFetch);
     await migrateTestDatabase();
     guild = discord.createGuild();
     unlisted = discord.createGuild();
-    alice = guild.createMember({ username: 'alice', globalName: 'Alice', nickname: 'Al' });
+    alice = guild.createMember({ username: 'alice', globalName: 'Alice', nickname: 'Al', avatar: 'aliceface' });
     unlistedMember = unlisted.createMember({ username: 'stranger' });
     await memberNamesRepo.recordPresent(guild.id, [
-        { userId: GHOST_ID, username: 'ghost', globalName: null, nickname: 'Boo', isBot: false },
+        { userId: GHOST_ID, username: 'ghost', globalName: null, nickname: 'Boo', avatarHash: null, isBot: false },
     ]);
 
     const client = await discord.start({ client: DISCORD_CLIENT });
@@ -63,6 +81,7 @@ afterAll(async () => {
     DISCORD_CLIENT.removeAllListeners(Events.GuildCreate);
     DISCORD_CLIENT.removeAllListeners(Events.GuildAvailable);
     await discord.destroy();
+    vi.unstubAllGlobals();
 });
 
 describe('the startup sweep', () => {
@@ -72,10 +91,16 @@ describe('the startup sweep', () => {
             globalName: 'Alice',
             nickname: 'Al',
             nicknames: ['Al'],
+            avatarHash: 'aliceface',
             isBot: false,
             inServer: true,
         });
-        expect(await rowFor(guild.id, guild.bot.id)).toMatchObject({ isBot: true, inServer: true });
+        expect(await rowFor(guild.id, guild.bot.id)).toMatchObject({ isBot: true, inServer: true, avatarHash: null });
+    });
+
+    it("keeps each member's avatar, and none for somebody with no avatar set", async () => {
+        await vi.waitFor(async () => expect(await heldAvatar(alice.id)).toBe('aliceface'));
+        expect(await heldAvatar(guild.bot.id)).toBeUndefined();
     });
 
     it('marks somebody recorded as here but no longer in the server as gone, with no date', async () => {
@@ -137,6 +162,24 @@ describe('the listeners', () => {
         expect((await rowFor(guild.id, member.id))?.leftAt).toBeInstanceOf(Date);
     });
 
+    it("records a join's avatar and keeps its picture, downloaded once", async () => {
+        const joiner = guild.createMember({ username: 'pretty', avatar: 'joinface' });
+
+        await eventually(guild.id, joiner.id, { avatarHash: 'joinface' });
+        await vi.waitFor(async () => expect(await heldAvatar(joiner.id)).toBe('joinface'));
+        expect(cdnFetch.mock.calls.filter(([input]) => String(input).includes(`/avatars/${joiner.id}/`))).toHaveLength(1);
+    });
+
+    it('takes a new account avatar — which only the user update carries — and replaces the picture', async () => {
+        const member = guild.createMember({ username: 'vain', avatar: 'oldface' });
+        await vi.waitFor(async () => expect(await heldAvatar(member.id)).toBe('oldface'));
+
+        discord.renameUser(member, { avatar: 'newface' });
+
+        await eventually(guild.id, member.id, { avatarHash: 'newface' });
+        await vi.waitFor(async () => expect(await heldAvatar(member.id)).toBe('newface'));
+    });
+
     it('writes nothing for a member update that changes none of the names — a role, a boost', async () => {
         const member = guild.createMember({ username: 'steady', nickname: 'Same Old' });
         await eventually(guild.id, member.id, { nickname: 'Same Old' });
@@ -157,7 +200,7 @@ describe('the listeners', () => {
         const outsider = unlisted.createMember({ username: 'outsider' });
         // Written while the server was still listed, say.
         await memberNamesRepo.recordPresent(unlisted.id, [
-            { userId: outsider.id, username: 'outsider', globalName: null, nickname: null, isBot: false },
+            { userId: outsider.id, username: 'outsider', globalName: null, nickname: null, avatarHash: null, isBot: false },
         ]);
 
         discord.renameUser(outsider, { username: 'renamed' });

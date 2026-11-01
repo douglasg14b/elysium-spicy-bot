@@ -4765,8 +4765,14 @@
                 "type": "object"
             },
             "MemberName": {
-                "description": "Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.",
+                "description": "Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`. `avatarUrl` is the same-origin address of the account avatar the bot keeps (`getMemberAvatar`, for an `<img src>`), or null when it holds none or they have none set.",
                 "properties": {
+                    "avatarUrl": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
                     "globalName": {
                         "type": [
                             "string",
@@ -4812,7 +4818,8 @@
                     "nicknames",
                     "isBot",
                     "inServer",
-                    "leftAt"
+                    "leftAt",
+                    "avatarUrl"
                 ],
                 "type": "object"
             },
@@ -12327,6 +12334,153 @@
                     }
                 },
                 "summary": "Who each of up to 100 user ids is in this server, members and leavers alike",
+                "tags": [
+                    "members"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/member-names/{userId}/avatar": {
+            "get": {
+                "description": "The picture itself, as the content type its bytes were read as, for an `<img src>` on a signed-in page — a `MemberName`'s `avatarUrl`. Not JSON, so not meant for the SDK.",
+                "operationId": "getMemberAvatar",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "path",
+                        "name": "userId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "in": "query",
+                        "name": "v",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "image/gif": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/jpeg": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/png": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            },
+                            "image/webp": {
+                                "schema": {
+                                    "format": "binary",
+                                    "type": "string"
+                                }
+                            }
+                        },
+                        "description": "The picture.",
+                        "headers": {
+                            "Cache-Control": {
+                                "description": "Always `private, max-age=31536000, immutable`: the address's `v` changes with the picture, so the browser may keep it. Refusals stay `private, no-store`.",
+                                "schema": {
+                                    "enum": [
+                                        "private, max-age=31536000, immutable"
+                                    ],
+                                    "type": "string"
+                                }
+                            },
+                            "X-Content-Type-Options": {
+                                "description": "Always `nosniff`: the picture is only ever what its content type says.",
+                                "schema": {
+                                    "enum": [
+                                        "nosniff"
+                                    ],
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The user id was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server, this server has never seen the user, they have no avatar set, or the bot holds no picture of them."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The account avatar the bot keeps for someone this server has seen",
                 "tags": [
                     "members"
                 ]

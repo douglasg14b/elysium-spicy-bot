@@ -406,6 +406,8 @@ export class ServerGuild {
             readonly globalName?: string;
             /** This server's nickname. Absent means none. */
             readonly nickname?: string;
+            /** The account avatar's hash. Absent means none set — Discord's default picture. */
+            readonly avatar?: string;
             readonly roles?: readonly ServerRole[];
         } = {}
     ): ServerMember {
@@ -413,6 +415,7 @@ export class ServerGuild {
             username: options.username ?? this.state.nextName('member'),
             globalName: options.globalName ?? null,
             nickname: options.nickname ?? null,
+            avatar: options.avatar ?? null,
             roleIds: (options.roles ?? []).map((role) => role.id),
         });
         return new ServerMember(this.id, member.user.id);

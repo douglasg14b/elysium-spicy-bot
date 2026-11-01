@@ -43,8 +43,9 @@ function monogramOf(name: string): string {
 
 /**
  * Resolve a member for display. Somebody who is gone is named by the bot's memory of them
- * (`remembered`, from `useMemberNames`) — the name they went by, and their handle — and
- * by the id when it has none.
+ * (`remembered`, from `useMemberNames`) — the name they went by, their handle, and the
+ * avatar the bot kept — and by the id when it has none. A current member keeps Discord's
+ * live avatar link.
  *
  * The id rather than "Unknown User": null means "Discord did not resolve this account",
  * not "this account has no name", and inventing a label would put a string on screen an
@@ -62,7 +63,7 @@ export function memberPresentation(
             return {
                 name,
                 handle: remembered.username || null,
-                avatarUrl: null,
+                avatarUrl: remembered.avatarUrl,
                 monogram: monogramOf(name),
                 departed: true,
                 isBot: remembered.isBot,

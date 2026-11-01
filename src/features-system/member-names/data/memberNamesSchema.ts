@@ -31,6 +31,16 @@ export interface MemberNamesTable {
     /** This server's nickname — the last one seen, for somebody who has left; null when they had none. */
     nickname: string | null;
     nicknames: JSONColumnType<string[]>;
+    /**
+     * The account avatar's hash as last seen, null when they had none set. The picture itself
+     * is in `member_avatars`, one per account; the dashboard shows it only while this is set.
+     */
+    avatarHash: string | null;
+    /**
+     * When `avatarHash` was last read from Discord; null means never — a row from before
+     * avatars were kept — so a null hash then says nothing about whether they have one.
+     */
+    avatarCheckedAt: ColumnType<Date | null, string | null, string | null>;
     isBot: boolean;
     inServer: boolean;
     leftAt: ColumnType<Date | null, string | null, string | null>;

@@ -12,6 +12,7 @@ function name(overrides: Partial<MemberName> = {}): MemberName {
         isBot: false,
         inServer: true,
         leftAt: null,
+        avatarUrl: null,
         ...overrides,
     };
 }

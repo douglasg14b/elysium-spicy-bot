@@ -130,8 +130,11 @@ headers on every answer — HSTS, `nosniff`, and framing refused (`X-Frame-Optio
 (`src/web/edgeGuards.ts`). It also refuses any `/api` body over 1 MiB, except a picture upload
 (`POST /api/guilds/{guildId}/uploads`), which may be up to 8 MiB and must declare its length (`src/web/api/index.ts`).
 None of the rules above caps a request body, so the upload passes the edge as long as the zone's plan limit on request
-bodies is above 8 MiB (Cloudflare publishes 100 MB for Free; confirm the zone's plan). An uploaded picture is the one `/api` answer marked
-`private, max-age=31536000, immutable` instead of `no-store`; `private` keeps it out of Cloudflare's cache.
+bodies is above 8 MiB (Cloudflare publishes 100 MB for Free; confirm the zone's plan). Two `/api` answers are marked
+`private, max-age=31536000, immutable` instead of `no-store`: an uploaded picture
+(`GET /api/guilds/{guildId}/uploads/{uploadId}`) and a member's kept avatar
+(`GET /api/guilds/{guildId}/member-names/{userId}/avatar`, whose `?v=` changes with the picture); `private` keeps
+both out of Cloudflare's cache.
 
 ## 7. Verify
 

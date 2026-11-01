@@ -25,6 +25,7 @@ function member(overrides: Partial<SeenMember> = {}): SeenMember {
         username: 'kittenuser',
         globalName: 'Kitten',
         nickname: 'Brat',
+        avatarHash: 'face1',
         isBot: false,
         ...overrides,
     };
@@ -120,8 +121,8 @@ describe('MemberNamesRepo', () => {
         await repo.recordPresent(GUILD, [member({ userId: OTHER_USER })]);
 
         await repo.recordLookedUp(GUILD, [
-            { userId: USER, username: 'ghost', globalName: null, isBot: false },
-            { userId: OTHER_USER, username: 'stale', globalName: null, isBot: false },
+            { userId: USER, username: 'ghost', globalName: null, avatarHash: null, isBot: false },
+            { userId: OTHER_USER, username: 'stale', globalName: null, avatarHash: null, isBot: false },
         ]);
 
         expect(await rowFor(GUILD, USER)).toMatchObject({
@@ -163,7 +164,9 @@ describe('MemberNamesRepo', () => {
 
     it('lets the sweep record a member over a row only ever looked up, even one written since it began', async () => {
         const sweepStartedAt = new Date(Date.now() - 1000);
-        await repo.recordLookedUp(GUILD, [{ userId: USER, username: 'kittenuser', globalName: null, isBot: false }]);
+        await repo.recordLookedUp(GUILD, [
+            { userId: USER, username: 'kittenuser', globalName: null, avatarHash: null, isBot: false },
+        ]);
 
         await repo.recordPresent(GUILD, [member()], sweepStartedAt);
 
@@ -181,14 +184,21 @@ describe('MemberNamesRepo', () => {
         await repo.recordPresent(OTHER_GUILD, [member()]);
 
         expect((await repo.guildIdsFor(USER)).sort()).toEqual([GUILD, OTHER_GUILD]);
-        await repo.recordUser(GUILD, { userId: USER, username: 'newhandle', globalName: 'New Kitten', isBot: false });
+        await repo.recordUser(GUILD, {
+            userId: USER,
+            username: 'newhandle',
+            globalName: 'New Kitten',
+            avatarHash: 'newface',
+            isBot: false,
+        });
 
         expect(await rowFor(GUILD, USER)).toMatchObject({
             username: 'newhandle',
             globalName: 'New Kitten',
+            avatarHash: 'newface',
             nickname: 'Brat',
             nicknames: ['Brat'],
         });
-        expect(await rowFor(OTHER_GUILD, USER)).toMatchObject({ username: 'kittenuser' });
+        expect(await rowFor(OTHER_GUILD, USER)).toMatchObject({ username: 'kittenuser', avatarHash: 'face1' });
     });
 });

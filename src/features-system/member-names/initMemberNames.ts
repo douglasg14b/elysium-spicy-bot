@@ -4,6 +4,7 @@ import { ALLOWED_GUILD_IDS } from '../../environment';
 import { isGuildAllowed } from '../guild-allowlist';
 import { memberNamesRepo } from './data/memberNamesRepo';
 import { sameNames, seenMember, seenUser } from './logic/seenNames';
+import { memberAvatarDownloads } from './memberAvatarDownloads';
 import { memberNamesQueue } from './memberNamesQueue';
 import { queueGuildSweep, sweepAllGuilds } from './memberNamesSweep';
 
@@ -41,8 +42,8 @@ export function watchMemberNames(client: Client, allowedGuildIds: readonly strin
     // Written from the new member only: the old one may be partial, and the new one is the
     // whole member as it is now. A whole old member with the same names means a role, boost
     // or timeout changed — nothing this records — so nothing is written. (discord.js gives
-    // both one shared User, already renamed, so an account rename compares equal here: it is
-    // the UserUpdate listener's to record.)
+    // both one shared User, already updated, so an account rename or a new account avatar
+    // compares equal here: it is the UserUpdate listener's to record.)
     client.on(Events.GuildMemberUpdate, (oldMember, newMember) => {
         if (!allowed(newMember.guild.id)) return;
         if (!oldMember.partial && sameNames(seenMember(oldMember), seenMember(newMember))) return;
@@ -58,8 +59,8 @@ export function watchMemberNames(client: Client, allowedGuildIds: readonly strin
         });
     });
 
-    // discord.js emits this for any cached account whose names changed, heard through any
-    // server; every server's row for them takes the new names.
+    // discord.js emits this for any cached account whose names or avatar changed (`User._equals`),
+    // heard through any server; every server's row for them takes the new ones.
     client.on(Events.UserUpdate, (_oldUser, newUser) => {
         void recordUserChange(newUser, allowed).catch((error: unknown) => {
             console.error('[member-names] Error recording a user update:', error);
@@ -86,20 +87,34 @@ export function watchMemberNames(client: Client, allowedGuildIds: readonly strin
     }
 }
 
-function recordMembers(member: GuildMember): Promise<void> {
-    return memberNamesQueue(member.guild.id, () => memberNamesRepo.recordPresent(member.guild.id, [seenMember(member)]));
+// Each records the names first, then hands the avatar to the download queue, which fetches
+// the picture in the background only if it is not the one held.
+
+async function recordMembers(member: GuildMember): Promise<void> {
+    const seen = seenMember(member);
+    await memberNamesQueue(member.guild.id, () => memberNamesRepo.recordPresent(member.guild.id, [seen]));
+    memberAvatarDownloads.note([seen]);
 }
 
-function recordLeave(member: GuildMember | PartialGuildMember): Promise<void> {
+/** A leave is the last sighting of them there: the user it carries is whole even when the member is partial. */
+async function recordLeave(member: GuildMember | PartialGuildMember): Promise<void> {
     const leftAt = new Date();
-    return memberNamesQueue(member.guild.id, () => memberNamesRepo.recordLeft(member.guild.id, seenMember(member), leftAt));
+    const seen = seenMember(member);
+    await memberNamesQueue(member.guild.id, () => memberNamesRepo.recordLeft(member.guild.id, seen, leftAt));
+    memberAvatarDownloads.note([seen]);
 }
 
-/** Every allowed server's row for `user` takes their new names; a server since taken off the list keeps its rows as they were. */
+/**
+ * Every allowed server's row for `user` takes their new names and avatar; a server since
+ * taken off the list keeps its rows as they were. An account no allowed server holds a row
+ * for downloads nothing.
+ */
 async function recordUserChange(user: User, allowed: (guildId: string) => boolean): Promise<void> {
     const seen = seenUser(user);
     const guildIds = (await memberNamesRepo.guildIdsFor(user.id)).filter(allowed);
+    if (guildIds.length === 0) return;
     await Promise.all(
         guildIds.map((guildId) => memberNamesQueue(guildId, () => memberNamesRepo.recordUser(guildId, seen)))
     );
+    memberAvatarDownloads.note([seen]);
 }

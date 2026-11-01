@@ -7,6 +7,8 @@ export interface SeenUser {
     readonly userId: string;
     readonly username: string;
     readonly globalName: string | null;
+    /** The account avatar's hash; null when they have none set (Discord's default picture). */
+    readonly avatarHash: string | null;
     readonly isBot: boolean;
 }
 
@@ -16,7 +18,7 @@ export interface SeenMember extends SeenUser {
 }
 
 /**
- * Rows per statement. Eleven values a row keeps one batch well inside both dialects' limits
+ * Rows per statement. Twelve values a row keeps one batch well inside both dialects' limits
  * on bound values, and a sweep of a large server to a statement per hundred members.
  */
 const WRITE_BATCH_SIZE = 100;
@@ -104,6 +106,8 @@ export class MemberNamesRepo {
                 globalName: member.globalName,
                 nickname: member.nickname,
                 nicknames: JSON.stringify(mergeNicknames(storedNicknames.get(member.userId) ?? [], member.nickname)),
+                avatarHash: member.avatarHash,
+                avatarCheckedAt: now,
                 isBot: member.isBot,
                 inServer: true,
                 leftAt: null,
@@ -120,6 +124,8 @@ export class MemberNamesRepo {
                         globalName: eb.ref('excluded.globalName'),
                         nickname: eb.ref('excluded.nickname'),
                         nicknames: eb.ref('excluded.nicknames'),
+                        avatarHash: eb.ref('excluded.avatarHash'),
+                        avatarCheckedAt: eb.ref('excluded.avatarCheckedAt'),
                         isBot: eb.ref('excluded.isBot'),
                         inServer: eb.ref('excluded.inServer'),
                         leftAt: eb.ref('excluded.leftAt'),
@@ -159,6 +165,8 @@ export class MemberNamesRepo {
                         globalName: user.globalName,
                         nickname: null,
                         nicknames: JSON.stringify([]),
+                        avatarHash: user.avatarHash,
+                        avatarCheckedAt: now,
                         isBot: user.isBot,
                         inServer: false,
                         leftAt: null,
@@ -172,8 +180,10 @@ export class MemberNamesRepo {
     }
 
     /**
-     * Record a leave the bot heard: `inServer` false and `leftAt` set, the stored names kept.
-     * Somebody it never recorded is recorded as they left, from what the leave carried.
+     * Record a leave the bot heard: `inServer` false and `leftAt` set, the stored names kept
+     * (a partial member's nickname is unknown). The avatar hash is taken: it is the account's,
+     * and the leave carries the whole user. Somebody it never recorded is recorded as they
+     * left, from what the leave carried.
      */
     async recordLeft(guildId: string, member: SeenMember, leftAt: Date): Promise<void> {
         const at = leftAt.toISOString();
@@ -186,6 +196,8 @@ export class MemberNamesRepo {
                 globalName: member.globalName,
                 nickname: member.nickname,
                 nicknames: JSON.stringify(mergeNicknames([], member.nickname)),
+                avatarHash: member.avatarHash,
+                avatarCheckedAt: at,
                 isBot: member.isBot,
                 inServer: false,
                 leftAt: at,
@@ -193,7 +205,13 @@ export class MemberNamesRepo {
                 updatedAt: at,
             })
             .onConflict((conflict) =>
-                conflict.columns(['guildId', 'userId']).doUpdateSet({ inServer: false, leftAt: at, updatedAt: at })
+                conflict.columns(['guildId', 'userId']).doUpdateSet({
+                    inServer: false,
+                    leftAt: at,
+                    updatedAt: at,
+                    avatarHash: member.avatarHash,
+                    avatarCheckedAt: at,
+                })
             )
             .execute();
     }
@@ -237,9 +255,9 @@ export class MemberNamesRepo {
     }
 
     /**
-     * An account's names changed: its row in this guild takes them. Nicknames are the guild's
-     * own and stay. `updatedAt` stays too: the sweep's guard reads it as "something newer
-     * about who is in the server", which a rename is not.
+     * An account's names or avatar changed: its row in this guild takes them. Nicknames are
+     * the guild's own and stay. `updatedAt` stays too: the sweep's guard reads it as
+     * "something newer about who is in the server", which a rename is not.
      */
     async recordUser(guildId: string, user: SeenUser): Promise<void> {
         await this.db
@@ -247,10 +265,25 @@ export class MemberNamesRepo {
             .set({
                 username: user.username,
                 globalName: user.globalName,
+                avatarHash: user.avatarHash,
+                avatarCheckedAt: new Date().toISOString(),
                 isBot: user.isBot,
             })
             .where('guildId', '=', guildId)
             .where('userId', '=', user.userId)
+            .execute();
+    }
+
+    /**
+     * Discord has no account by this id any more (10013, deleted): its row here is checked,
+     * with no avatar. Its names stay — they are the last the bot knew.
+     */
+    async recordNoAccount(guildId: string, userId: string): Promise<void> {
+        await this.db
+            .updateTable('member_names')
+            .set({ avatarHash: null, avatarCheckedAt: new Date().toISOString() })
+            .where('guildId', '=', guildId)
+            .where('userId', '=', userId)
             .execute();
     }
 }

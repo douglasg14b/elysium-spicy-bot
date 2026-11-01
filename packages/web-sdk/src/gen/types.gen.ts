@@ -1325,9 +1325,10 @@ export type ManagedRole = {
 };
 
 /**
- * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`.
+ * Who an id is in this server. `username` and `globalName` are the account's, `nickname` this server's — the last one seen, for somebody who left. `nicknames` is every server nickname seen, newest first. `inServer` false with no `leftAt` (ISO) means the bot did not see them go. Show `nickname`, else `globalName`, else `username`. `avatarUrl` is the same-origin address of the account avatar the bot keeps (`getMemberAvatar`, for an `<img src>`), or null when it holds none or they have none set.
  */
 export type MemberName = {
+    avatarUrl: string | null;
     globalName: string | null;
     inServer: boolean;
     isBot: boolean;
@@ -4488,6 +4489,56 @@ export type GetMemberNamesResponses = {
 };
 
 export type GetMemberNamesResponse = GetMemberNamesResponses[keyof GetMemberNamesResponses];
+
+export type GetMemberAvatarData = {
+    body?: never;
+    path: {
+        guildId: string;
+        userId: string;
+    };
+    query?: {
+        v?: string;
+    };
+    url: '/api/guilds/{guildId}/member-names/{userId}/avatar';
+};
+
+export type GetMemberAvatarErrors = {
+    /**
+     * The user id was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server, this server has never seen the user, they have no avatar set, or the bot holds no picture of them.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetMemberAvatarError = GetMemberAvatarErrors[keyof GetMemberAvatarErrors];
+
+export type GetMemberAvatarResponses = {
+    /**
+     * The picture.
+     */
+    200: Blob | File;
+};
+
+export type GetMemberAvatarResponse = GetMemberAvatarResponses[keyof GetMemberAvatarResponses];
 
 export type SearchGuildMembersData = {
     body?: never;

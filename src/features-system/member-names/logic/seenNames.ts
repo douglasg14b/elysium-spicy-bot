@@ -3,7 +3,13 @@ import type { SeenMember, SeenUser } from '../data/memberNamesRepo';
 
 /** An account's names as the repo records them. */
 export function seenUser(user: User): SeenUser {
-    return { userId: user.id, username: user.username, globalName: user.globalName, isBot: user.bot };
+    return {
+        userId: user.id,
+        username: user.username,
+        globalName: user.globalName,
+        avatarHash: user.avatar,
+        isBot: user.bot,
+    };
 }
 
 /**
@@ -21,6 +27,7 @@ export function sameNames(before: SeenMember, after: SeenMember): boolean {
         before.nickname === after.nickname &&
         before.username === after.username &&
         before.globalName === after.globalName &&
+        before.avatarHash === after.avatarHash &&
         before.isBot === after.isBot
     );
 }

@@ -4,13 +4,13 @@ import {
     GUILD_UPLOAD_TOTAL_LABEL,
     GUILD_UPLOAD_TOTAL_LIMIT_BYTES,
     guildUploadsRepo,
-    IMAGE_CONTENT_TYPES,
     storeGuildUpload,
     UPLOAD_SIZE_LABEL,
     uploadUsesForGuild,
 } from '../../features-system/guild-uploads';
 import type { AppEnv } from '../types';
 import { apiRouter, errorBodyResponse, GUILD_SCOPED_ERRORS, GuildPathSchema, jsonResponse } from './openApi';
+import { BINARY_SCHEMA, pictureHeaders, pictureResponse } from './pictureResponse';
 import {
     GuildUploadListSchema,
     GuildUploadSchema,
@@ -38,22 +38,8 @@ export const UPLOAD_GUILD_FULL_SENTENCE =
 export const UPLOAD_IN_USE_SENTENCE =
     "Not so fast — that picture's still on display. Swap it out of everywhere below, then I'll let it go.";
 
-/**
- * How long a browser may keep a picture: a year, without asking again. Private, so no shared
- * cache keeps one server's pictures. Only the picture itself carries it.
- */
-export const UPLOAD_CACHE_CONTROL = 'private, max-age=31536000, immutable';
-
 /** What a picture that is not there — or is another server's — is told. */
 export const UPLOAD_NOT_FOUND_SENTENCE = "That picture isn't in this server.";
-
-/**
- * The binary body and response, declared as a plain OpenAPI schema rather than zod. A
- * non-zod schema gets no validator — `@hono/zod-openapi` validates JSON and form bodies
- * only, and the handler reads the bytes itself — and the request-rule walk
- * (`requestMessages.ts`) reads JSON bodies only, so there is nothing to walk either.
- */
-const BINARY_SCHEMA = { type: 'string', format: 'binary' } as const;
 
 /**
  * What `requireAuth` and `requireGuildAccess` answer, and the upload's own refusals. Not
@@ -151,22 +137,7 @@ const getGuildUploadRoute = createRoute({
         'page. Not JSON, so not meant for the SDK.',
     request: { params: UploadPathSchema },
     responses: {
-        200: {
-            description: 'The picture.',
-            headers: {
-                'Cache-Control': {
-                    description:
-                        `Always \`${UPLOAD_CACHE_CONTROL}\`: an upload's bytes never change, so the browser ` +
-                        'may keep them. Refusals stay `private, no-store`.',
-                    schema: { type: 'string', enum: [UPLOAD_CACHE_CONTROL] },
-                },
-                'X-Content-Type-Options': {
-                    description: 'Always `nosniff`: the picture is only ever what its content type says.',
-                    schema: { type: 'string', enum: ['nosniff'] },
-                },
-            },
-            content: Object.fromEntries(IMAGE_CONTENT_TYPES.map((contentType) => [contentType, { schema: BINARY_SCHEMA }])),
-        },
+        200: pictureResponse("an upload's bytes never change, so the browser may keep them."),
         ...GUILD_SCOPED_ERRORS,
         404: errorBodyResponse('The bot is not in this server, or the server holds no upload with this id.'),
     },
@@ -240,14 +211,10 @@ export function uploadRoutes(): OpenAPIHono<AppEnv> {
         });
 
         /*
-         * One picture, as the type it was sniffed as. `nosniff` here as well as on every
-         * response (`dashboardSecureHeaders`), so the answer is safe wherever this router is
-         * mounted.
-         *
-         * The one `/api` answer a browser may keep ({@link UPLOAD_CACHE_CONTROL}, which
-         * `noStoreApiResponses` leaves alone): an upload id names one row whose bytes are
-         * never updated, so the editor's pictures need not be fetched again on every render.
-         * A refusal sets nothing and stays `no-store`.
+         * One picture, served with `pictureHeaders` — one of the two `/api` answers a browser
+         * may keep (a member's avatar is the other): an upload id names one row whose bytes
+         * are never updated, so the editor's pictures need not be fetched again on every
+         * render. A refusal sets nothing and stays `no-store`.
          */
         router.openapi(getGuildUploadRoute, async (c) => {
             const { uploadId } = c.req.valid('param');
@@ -257,11 +224,7 @@ export function uploadRoutes(): OpenAPIHono<AppEnv> {
             }
             // A copy: `c.body` takes a `Uint8Array<ArrayBuffer>`, and a driver's `Buffer` is typed
             // over `ArrayBufferLike`, so a view of it would need a cast to say it is not shared.
-            return c.body(new Uint8Array(file.bytes), 200, {
-                'Content-Type': file.contentType,
-                'X-Content-Type-Options': 'nosniff',
-                'Cache-Control': UPLOAD_CACHE_CONTROL,
-            });
+            return c.body(new Uint8Array(file.bytes), 200, pictureHeaders(file.contentType));
         });
     });
 }

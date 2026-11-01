@@ -13,8 +13,13 @@ import type { AppEnv } from '../../types';
  */
 
 const resolveMemberNames = vi.fn();
+const storedHashes = vi.fn();
 
-vi.mock('../../../features-system/member-names', () => ({ resolveMemberNames, MEMBER_NAME_LOOKUP_CAP: 25 }));
+vi.mock('../../../features-system/member-names', () => ({
+    resolveMemberNames,
+    MEMBER_NAME_LOOKUP_CAP: 25,
+    memberAvatarsRepo: { storedHashes },
+}));
 
 const { memberNameRoutes } = await import('../memberNameRoutes');
 
@@ -47,6 +52,8 @@ function row(overrides: Partial<MemberNameRow> = {}): MemberNameRow {
         globalName: 'Kitten',
         nickname: 'Brat',
         nicknames: ['Brat', 'Pet'],
+        avatarHash: null,
+        avatarCheckedAt: new Date('2026-10-02T00:00:00.000Z'),
         isBot: false,
         inServer: true,
         leftAt: null,
@@ -58,6 +65,7 @@ function row(overrides: Partial<MemberNameRow> = {}): MemberNameRow {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    storedHashes.mockResolvedValue(new Map());
 });
 
 describe('GET /:guildId/member-names', () => {
@@ -81,10 +89,33 @@ describe('GET /:guildId/member-names', () => {
                     isBot: false,
                     inServer: true,
                     leftAt: null,
+                    avatarUrl: null,
                 },
                 expect.objectContaining({ userId: GHOST_ID, inServer: false, leftAt: '2026-10-30T12:00:00.000Z' }),
             ],
         });
+    });
+
+    it('gives a kept avatar\'s address, versioned by the picture held, only while the row has an avatar set', async () => {
+        resolveMemberNames.mockResolvedValue([
+            row({ avatarHash: 'newface' }),
+            row({ userId: GHOST_ID, avatarHash: null }),
+        ]);
+        // The picture held is the older one: the newer is still downloading.
+        storedHashes.mockResolvedValue(
+            new Map([
+                [KITTEN_ID, 'oldface'],
+                [GHOST_ID, 'removedface'],
+            ])
+        );
+
+        const body = (await (await get(`${KITTEN_ID},${GHOST_ID}`)).json()) as { members: { avatarUrl: string | null }[] };
+
+        expect(storedHashes).toHaveBeenCalledWith([KITTEN_ID, GHOST_ID]);
+        expect(body.members.map((member) => member.avatarUrl)).toEqual([
+            `/api/guilds/${GUILD_ID}/member-names/${KITTEN_ID}/avatar?v=oldface`,
+            null,
+        ]);
     });
 
     it('asks about each id once, in this guild', async () => {
