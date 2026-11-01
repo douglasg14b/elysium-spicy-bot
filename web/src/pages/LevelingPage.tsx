@@ -18,7 +18,6 @@
 
 import {
     Alert,
-    Avatar,
     Badge,
     Card,
     Center,
@@ -42,6 +41,7 @@ import { loadErrorMessage } from '../api/loadErrorMessage';
 import { LevelingTabs } from '../leveling/LevelingTabs';
 import { leaderboardTotals } from '../leveling/levelingLeaderboard';
 import { memberPresentation } from '../leveling/levelingMember';
+import { MemberFaceCell } from '../members/MemberFaceCell';
 import { formatMoment } from '../leveling/levelingPresentation';
 import { useGuilds } from '../guilds/GuildContext';
 import { useMemberNames } from '../members/useMemberNames';
@@ -237,60 +237,30 @@ export function LevelingPage() {
                                             </Group>
                                         </Table.Td>
                                         <Table.Td>
-                                            <Group gap={10} wrap="nowrap">
-                                                <Avatar
-                                                    src={person.avatarUrl ?? undefined}
-                                                    radius="xl"
-                                                    size={30}
-                                                    color="brand"
-                                                >
-                                                    {person.monogram}
-                                                </Avatar>
-                                                <div style={{ overflow: 'hidden' }}>
-                                                    <Group gap={6} wrap="nowrap">
-                                                        <Text size="13.5px" fw={600} lineClamp={1}>
-                                                            {person.name}
-                                                        </Text>
-                                                        {person.isBot ? (
-                                                            <Badge
-                                                                size="xs"
-                                                                variant="light"
-                                                                color="gray"
-                                                                radius="sm"
-                                                            >
-                                                                Bot
-                                                            </Badge>
-                                                        ) : null}
-                                                        {/*
-                                                         * A departed member still holds their
-                                                         * XP and still ranks, so the row stays
-                                                         * — it just says why the name is an id.
-                                                         */}
-                                                        {person.departed ? (
-                                                            <Tooltip
-                                                                label="Discord no longer resolves this account in this server — they left, but the XP they earned is still on the board."
-                                                                multiline
-                                                                w={260}
-                                                                withArrow
-                                                            >
-                                                                <Badge
-                                                                    size="xs"
-                                                                    variant="light"
-                                                                    color="red"
-                                                                    radius="sm"
-                                                                >
-                                                                    Gone
-                                                                </Badge>
-                                                            </Tooltip>
-                                                        ) : null}
-                                                    </Group>
-                                                    {person.handle ? (
-                                                        <Text size="11.5px" c="dark.2" lineClamp={1}>
-                                                            @{person.handle}
-                                                        </Text>
-                                                    ) : null}
-                                                </div>
-                                            </Group>
+                                            <MemberFaceCell face={person}>
+                                                {person.isBot ? (
+                                                    <Badge size="xs" variant="light" color="gray" radius="sm">
+                                                        Bot
+                                                    </Badge>
+                                                ) : null}
+                                                {/*
+                                                 * A departed member still holds their XP and
+                                                 * still ranks, so the row stays — it just says
+                                                 * why the name is an id.
+                                                 */}
+                                                {person.departed ? (
+                                                    <Tooltip
+                                                        label="Discord no longer resolves this account in this server — they left, but the XP they earned is still on the board."
+                                                        multiline
+                                                        w={260}
+                                                        withArrow
+                                                    >
+                                                        <Badge size="xs" variant="light" color="red" radius="sm">
+                                                            Gone
+                                                        </Badge>
+                                                    </Tooltip>
+                                                ) : null}
+                                            </MemberFaceCell>
                                         </Table.Td>
                                         <Table.Td>
                                             <Badge variant="light" color="brand" radius="sm">

@@ -8,37 +8,14 @@
  */
 
 import type { LevelingMember, MemberName } from '@brattybot/web-sdk';
-import { memberNameLabel } from '../members/memberNames';
+import { monogramOf, rememberedFace, unrememberedFace, type MemberFace } from '../members/memberFace';
 
 /** What a row or header needs to draw a person, with absence already resolved. */
-export interface MemberPresentation {
-    /** Always printable: a display name, or the id when nobody can name them. */
-    readonly name: string;
-    /** The handle, when one is known. Null otherwise — never a fabricated `@id`. */
-    readonly handle: string | null;
-    /** Null means "render the monogram", not "broken image". */
-    readonly avatarUrl: string | null;
-    /** Two letters for the avatar fallback. */
-    readonly monogram: string;
+export interface MemberPresentation extends MemberFace {
     /** Whether Discord still resolves this id in the guild. Drives the "left" marker. */
     readonly departed: boolean;
     /** Bots earn XP like anyone else; the leaderboard says so rather than hiding it. */
     readonly isBot: boolean;
-}
-
-/**
- * Two letters for an avatar with no image, matching `DashboardLayout`'s monogram rule.
- *
- * Duplicated deliberately rather than exported from the layout: that copy takes a guild or
- * user name and this one has to survive a raw snowflake, and coupling a nav component to a
- * leaderboard row to share five lines is the worse trade.
- */
-function monogramOf(name: string): string {
-    const parts = name.trim().split(/\s+/);
-    if (parts.length >= 2 && parts[0] && parts[1]) {
-        return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return name.slice(0, 2).toUpperCase() || '??';
 }
 
 /**
@@ -59,24 +36,9 @@ export function memberPresentation(
 ): MemberPresentation {
     if (!member) {
         if (remembered) {
-            const name = memberNameLabel(remembered);
-            return {
-                name,
-                handle: remembered.username || null,
-                avatarUrl: remembered.avatarUrl,
-                monogram: monogramOf(name),
-                departed: true,
-                isBot: remembered.isBot,
-            };
+            return { ...rememberedFace(remembered), departed: true, isBot: remembered.isBot };
         }
-        return {
-            name: userId,
-            handle: null,
-            avatarUrl: null,
-            monogram: '??',
-            departed: true,
-            isBot: false,
-        };
+        return { ...unrememberedFace(userId), monogram: '??', departed: true, isBot: false };
     }
 
     // `||` rather than `??`: an empty display name is as unusable as a missing one, and an

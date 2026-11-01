@@ -1,5 +1,6 @@
 import type { Warning, WarningCounts, WarningNoticeStatus, WarningPerson, WarningStatus } from '@brattybot/web-sdk';
-import { memberNameLabel, type MemberNames } from '../members/memberNames';
+import { rememberedFace, unrememberedFace, type MemberFace } from '../members/memberFace';
+import type { MemberNames } from '../members/memberNames';
 import type { WarningFilterState } from './warningFilters';
 import { filtersHideWarnings } from './warningFilters';
 
@@ -17,14 +18,20 @@ export const WARNING_STATUS_PRESENTATION: Readonly<
 };
 
 /**
- * Somebody on a warning: the name they go by now, from the bot's memory of members
- * (`names`); else the name the row recorded; else the raw id, for a warning written before
- * names were and somebody the bot cannot name — null means "not recorded", and inventing
- * "Unknown" would read as somebody's actual name (the tickets `participantLabel` rule).
+ * Somebody on a warning, drawn from the bot's memory of members (`names`): the name they go
+ * by now, their handle and the picture it kept. Without a memory of them, the name the row
+ * recorded, else the raw id — for a warning written before names were and somebody the bot
+ * cannot name. Null means "not recorded", and inventing "Unknown" would read as somebody's
+ * actual name (the tickets `participantLabel` rule).
  */
-export function warningPersonLabel(person: WarningPerson, names: MemberNames): string {
+export function warningPersonFace(person: WarningPerson, names: MemberNames): MemberFace {
     const known = names.get(person.id);
-    return known ? memberNameLabel(known) : person.name || person.id;
+    return known ? rememberedFace(known) : unrememberedFace(person.name || person.id);
+}
+
+/** Somebody on a warning as one string, for the drawer, the dialogs and the filter chip. */
+export function warningPersonLabel(person: WarningPerson, names: MemberNames): string {
+    return warningPersonFace(person, names).name;
 }
 
 /** Everybody a warning names — member, issuer, last editor, releaser — for one names request per view. */

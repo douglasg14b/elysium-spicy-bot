@@ -39,6 +39,7 @@ import { listWarningsOptions, type Warning } from '@brattybot/web-sdk';
 import { loadErrorMessage } from '../api/loadErrorMessage';
 import { useGuilds } from '../guilds/GuildContext';
 import { CountTile } from '../layout/CountTile';
+import { MemberFaceCell } from '../members/MemberFaceCell';
 import type { MemberNames } from '../members/memberNames';
 import { useMemberNames } from '../members/useMemberNames';
 import { PAGE_MAX_WIDTH } from '../theme';
@@ -56,6 +57,7 @@ import {
     formatWarningDay,
     WARNING_STATUS_PRESENTATION,
     warningPeopleIds,
+    warningPersonFace,
     warningPersonLabel,
 } from '../warnings/warningPresentation';
 
@@ -353,16 +355,19 @@ function WarningsList({ guildId, guildName }: WarningsListProps) {
                     </Stack>
                 ) : (
                     // Scrolls below a 1280 laptop's content width rather than squeezing columns.
-                    <Table.ScrollContainer minWidth={860}>
+                    <Table.ScrollContainer minWidth={960}>
                         <Table layout="fixed" verticalSpacing="sm" horizontalSpacing="md" highlightOnHover>
                             <Table.Thead>
                                 <Table.Tr>
-                                    {/* Wide enough for a bare 19-digit id, shown for a row with no recorded name. */}
-                                    <Table.Th w={180}>Member</Table.Th>
+                                    {/*
+                                     * The people columns fit a picture beside a bare 19-digit id,
+                                     * shown for somebody nobody can name.
+                                     */}
+                                    <Table.Th w={220}>Member</Table.Th>
                                     <Table.Th>Rule</Table.Th>
                                     <Table.Th w={115}>Issued</Table.Th>
                                     <Table.Th w={115}>Drops off</Table.Th>
-                                    <Table.Th w={165}>Issued by</Table.Th>
+                                    <Table.Th w={210}>Issued by</Table.Th>
                                     {showStatus ? <Table.Th w={100}>Status</Table.Th> : null}
                                 </Table.Tr>
                             </Table.Thead>
@@ -423,17 +428,17 @@ interface WarningRowProps {
 
 /** One warning in the table. The row opens the drawer; the member's name filters to them. */
 function WarningRow({ warning, names, showStatus, onOpen, onFilterToMember }: WarningRowProps) {
-    const member = warningPersonLabel(warning.member, names);
-    const issuer = warningPersonLabel(warning.issuedBy, names);
+    const member = warningPersonFace(warning.member, names);
+    const issuer = warningPersonFace(warning.issuedBy, names);
     const status = WARNING_STATUS_PRESENTATION[warning.status];
 
     return (
         <Table.Tr style={{ cursor: 'pointer' }} onClick={onOpen}>
             <Table.Td>
-                <Tooltip label={`Only ${member}'s warnings`} withArrow openDelay={300}>
+                <Tooltip label={`Only ${member.name}'s warnings`} withArrow openDelay={300}>
                     <UnstyledButton
                         // Said, not only shown on hover: the name filters rather than opens.
-                        aria-label={`Only ${member}'s warnings`}
+                        aria-label={`Only ${member.name}'s warnings`}
                         // The row opens the drawer; this must not also.
                         onClick={(event) => {
                             event.stopPropagation();
@@ -441,10 +446,7 @@ function WarningRow({ warning, names, showStatus, onOpen, onFilterToMember }: Wa
                         }}
                         style={{ maxWidth: '100%' }}
                     >
-                        {/* `lh` set: the button's own line height clipped an underscore's descender. */}
-                        <Text size="13px" fw={600} c="brand.4" lh={1.45} truncate="end">
-                            {member}
-                        </Text>
+                        <MemberFaceCell face={member} nameColor="brand.4" />
                     </UnstyledButton>
                 </Tooltip>
             </Table.Td>
@@ -481,11 +483,7 @@ function WarningRow({ warning, names, showStatus, onOpen, onFilterToMember }: Wa
                 </Text>
             </Table.Td>
             <Table.Td>
-                <Tooltip label={issuer} multiline w={250} withArrow>
-                    <Text size="12.5px" c="dark.2" lineClamp={1}>
-                        {issuer}
-                    </Text>
-                </Tooltip>
+                <MemberFaceCell face={issuer} />
             </Table.Td>
             {showStatus ? (
                 <Table.Td>
