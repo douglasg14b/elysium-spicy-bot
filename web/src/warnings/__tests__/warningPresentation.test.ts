@@ -37,6 +37,7 @@ describe('warningPersonLabel', () => {
         isBot: false,
         inServer: false,
         leftAt: null,
+        avatarUrl: null,
     };
 
     it('is the name they go by now, over whatever the row recorded', () => {

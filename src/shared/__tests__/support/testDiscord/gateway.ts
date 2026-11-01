@@ -156,8 +156,9 @@ function describeMismatch(client: Client, event: HarnessEvent): string | undefin
             const agrees =
                 member.nickname === (event.d.nick ?? null) &&
                 member.user.username === event.d.user.username &&
-                member.user.globalName === event.d.user.global_name;
-            return agrees ? undefined : `member ${event.d.user.id} does not carry the nickname or names Discord sent`;
+                member.user.globalName === event.d.user.global_name &&
+                member.user.avatar === event.d.user.avatar;
+            return agrees ? undefined : `member ${event.d.user.id} does not carry the nickname, names or avatar Discord sent`;
         }
 
         case GatewayDispatchEvents.GuildMembersChunk: {

@@ -1,6 +1,6 @@
 # Member names — who an id was, even after they left
 
-> **Status**: Step 1 built 2026-10-30. Migration and repo checked on a throwaway Postgres 16 (the down migration was not); not yet run on a live guild.
+> **Status**: Step 1 built 2026-10-30; step 2 (avatars) built 2026-10-31, uncommitted, including the refresh of departed rows (`avatar_checked_at`, `users.fetch`, once per row per process) and the 1 MiB download cap. Each step's migration and repo checked on a throwaway Postgres 16 — step 2's refresh selection, checked-at writes and a refresh through `resolveMemberNames` too (neither down migration was); neither run on a live guild.
 > **Owner**: Douglas
 > **Written**: 2026-10-30 on `feat/member-names` (worktree `.claude/worktrees/member-names`) off `feat/web-ui-flow-engine` @ `611445b`
 
@@ -92,6 +92,67 @@ Writes for one guild go through one in-process queue, so the sweep and live even
 ## 5. Tests
 
 Repo against sqlite (merge, upsert, mark-left, user update across guilds); the sweep and listeners with the TestDiscord harness; the route (hits, misses looked up and stored, unknown left out, cap); `rateLimitClassification`; the web label and the warnings list showing a cached name over a snapshot.
+
+---
+
+## Step 2 — avatars (planned 2026-10-31)
+
+Step 1 is merged into `feat/web-ui-flow-engine` (`c563ab8`).
+
+### The problem
+
+The leaderboard shows each member's avatar from a live Discord CDN link (`cardAvatarUrlFromUser(user, 128)`, `fetchMemberSnapshots.ts`). Someone who has left comes back `member: null`, so the page has no picture for them, and a saved link can stop working anyway once they change their avatar.
+
+### Decisions (2026-10-31)
+
+| Question | Answer |
+|---|---|
+| How avatars are kept | The picture itself, not a link, so it never breaks |
+| What "cache" means | Whatever the bot reads from Discord refreshes it. Once a person can no longer be read (they left), what we hold is kept for good |
+
+Choices made in the plan, not asked:
+
+- **The account avatar, not a server avatar.** It is what the leaderboard shows today. So it is one picture per person, stored once and shared by every server that has a `member_names` row for them.
+- **Only the current picture is kept.** A new avatar replaces the old one. Someone who left keeps the last one we saw, because nothing tells us about their changes after that.
+- **No avatar set** (Discord's default) stores nothing, and the dashboard shows what it shows today.
+- **Downloads never hold up a write.** The name write happens first. Downloading the picture is queued in the background, a few at a time across the bot, and only when the avatar changed or we hold none. The first startup sweep therefore fetches every member's picture once. Later sweeps fetch only changed ones.
+
+### Data
+
+- New migration `2026-10-31-Member_Avatars.ts` (step 1's migration has shipped to the deploy branch, so do not edit it):
+  - `member_names.avatar_hash`: text, nullable. The hash Discord last reported.
+  - `member_names.avatar_checked_at`: timestamptz / text, nullable. When that hash was read; null means never.
+  - New table `member_avatars`: `user_id` unique, `avatar_hash`, `content_type`, `bytes` (`bytea` / `blob`, as `guild_uploads` does), `fetched_at`.
+- The type is sniffed from the bytes, reusing the uploads sniffer.
+- Download at 128 px, static (an animated avatar is stored as its still frame).
+
+### Keeping it current
+
+- Every place step 1 records a person (sweep, member add and update, `UserUpdate`, the route's lookups through the member cache or `users.fetch`) also records `avatar_hash`. When the hash differs from `member_avatars`, it queues a download.
+- A failed download is logged and retried the next time that person is seen. It is never retried in a loop.
+- **Somebody who has left is pulled, since nothing else sees them again** (added 2026-10-31; Douglas's rule: "pull refreshes the cache; once it can't be pulled, keep it for good"). `member_names.avatar_checked_at` records when `avatar_hash` was last read from Discord; null means never, which tells "never checked" (every row from before this step) from "no avatar". The names route refreshes a departed row through `users.fetch` when it was never checked, or names an avatar whose picture is not held: it takes their current names and hash and queues the picture. A deleted account (10013) is marked checked with no avatar, its names kept. Refreshes share the 25-a-request lookup cap, ids nobody has seen first, and each departed row is refreshed at most once per process — a restart is the retry, so a failing download is never asked about on every load, and since the refresh reads the current hash, a stale CDN hash is not fetched again. **The answer that refreshes somebody may come without their picture**; a later load has it.
+- Downloads are capped at 1 MiB: one declaring more is refused unread, and what arrives is measured again before it is sniffed.
+
+### Reading
+
+- `MemberName` gains `avatarUrl`: `/api/guilds/{guildId}/member-names/{userId}/avatar?v=<hash>`, or null when nothing is stored.
+- A new route serves those bytes only when that guild has a `member_names` row for the user, so another server cannot read them. The cache header is `private, max-age=31536000, immutable`, as uploads use; the `v` changes with the picture.
+- The route only reads the database, so it sits in the general rate-limit budget. Add it to the classification test.
+- The dashboard shows it with `<img src>` (as `uploadImageUrl.ts` does), with a path test holding the URL to the spec.
+
+### Dashboard
+
+The leaderboard and member page use the cached avatar for a `member: null` row (someone who left), beside the cached name. Current members keep the live link.
+
+### Tests
+
+- Repo: store, replace on a new hash, keep for a leaver.
+- The download queue: only on a change, failure logged with no loop.
+- Route: the bytes served, another guild refused (404), the cache header.
+- Leveling: a leaver shows the cached picture.
+- Refresh: a departed row never checked is refreshed and its picture kept; one whose download failed is refreshed once a process; 10013 marks it checked; unseen ids take the cap first.
+
+---
 
 ## What comes next
 

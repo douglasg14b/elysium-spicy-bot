@@ -55,13 +55,23 @@ export const refusePlaintextRequests = createMiddleware<AppEnv>(async (c, next) 
 });
 
 /**
+ * How long a browser may keep a picture the API serves: a year, without asking again.
+ * Private, so no shared cache keeps one server's pictures. Only a picture whose address
+ * names bytes that never change carries it.
+ */
+export const PICTURE_CACHE_CONTROL = 'private, max-age=31536000, immutable';
+
+/**
  * Marks every API answer as never cacheable, unless its route chose a `Cache-Control` of its
  * own. Cloudflare caches by file extension, so JSON under `/api` is not cached today; this
  * keeps one member's guilds, flows and tickets out of any shared cache even if a cache rule
  * is added later.
  *
- * The one route that chooses is an uploaded picture (`getGuildUpload`), whose bytes never
- * change: it answers `private`, so it still stays out of any shared cache.
+ * The routes that choose are the two pictures, each {@link PICTURE_CACHE_CONTROL} through
+ * `pictureHeaders` (`api/pictureResponse.ts`): an
+ * uploaded picture (`getGuildUpload`), whose bytes never change, and a member's avatar
+ * (`getMemberAvatar`), whose address carries the picture's hash. Both are `private`, so they
+ * still stay out of any shared cache.
  */
 export const noStoreApiResponses = createMiddleware<AppEnv>(async (c, next) => {
     await next();

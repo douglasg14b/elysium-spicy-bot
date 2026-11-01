@@ -117,7 +117,16 @@ export interface NewMember {
     readonly username: string;
     readonly globalName: string | null;
     readonly nickname: string | null;
+    readonly avatar: string | null;
     readonly roleIds: readonly string[];
+}
+
+/** What an account changed about itself; absent means unchanged, null cleared. */
+export interface AccountChange {
+    readonly username?: string;
+    readonly globalName?: string | null;
+    /** The account avatar's hash; null removes it (Discord's default picture). */
+    readonly avatar?: string | null;
 }
 
 /** A guild to create, with the bot already installed in it. */
@@ -639,7 +648,7 @@ export class ServerState {
         const guild = this.guild(guildId);
         for (const roleId of input.roleIds) this.role(guildId, roleId);
 
-        const member = this.newMember(this.newUser(input.username, input.globalName), input.roleIds);
+        const member = this.newMember(this.newUser(input.username, input.globalName, input.avatar), input.roleIds);
         member.nick = input.nickname;
         guild.members.set(member.user.id, member);
 
@@ -685,17 +694,18 @@ export class ServerState {
     }
 
     /**
-     * An account's own names changed. Discord tells a bot through a GUILD_MEMBER_UPDATE in
-     * every guild the two share — USER_UPDATE goes only to the account itself — and
-     * discord.js turns the changed user into a `userUpdate` of its own.
+     * An account's own names or avatar changed. Discord tells a bot through a
+     * GUILD_MEMBER_UPDATE in every guild the two share — USER_UPDATE goes only to the account
+     * itself — and discord.js turns the changed user into a `userUpdate` of its own.
      */
-    renameUser(userId: string, names: { readonly username?: string; readonly globalName?: string | null }): void {
+    renameUser(userId: string, names: AccountChange): void {
         const user = this.users.get(userId);
         if (!user) {
             throw new TestDiscordError(`TestDiscord holds no user ${userId} to rename.`);
         }
         if (names.username !== undefined) user.username = names.username;
         if (names.globalName !== undefined) user.global_name = names.globalName;
+        if (names.avatar !== undefined) user.avatar = names.avatar;
 
         for (const guild of this.guilds.values()) {
             const member = guild.members.get(userId);
@@ -982,8 +992,8 @@ export class ServerState {
         }
     }
 
-    private newUser(username: string, globalName: string | null = null): APIUser {
-        const user: APIUser = { id: newSnowflake(), username, discriminator: '0000', global_name: globalName, avatar: null };
+    private newUser(username: string, globalName: string | null = null, avatar: string | null = null): APIUser {
+        const user: APIUser = { id: newSnowflake(), username, discriminator: '0000', global_name: globalName, avatar };
         this.users.set(user.id, user);
         return user;
     }

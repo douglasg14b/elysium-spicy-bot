@@ -126,7 +126,8 @@ describe('LevelingUserPage', () => {
         expect(api.requests.some((request) => request.path.includes('/member-names'))).toBe(false);
     });
 
-    it('names somebody who has left by what the bot remembers, handle and all', async () => {
+    it('names somebody who has left by what the bot remembers, handle and kept picture and all', async () => {
+        const keptAvatar = `/api/guilds/${GUILD_ID}/member-names/${USER_ID}/avatar?v=lastface`;
         const api = installFakeApi();
         serveGuild(api);
         api.on('GET', `${LEVELING_PATH}/users/${USER_ID}`, () => ({ body: { ...detail('week'), member: null } }));
@@ -142,6 +143,7 @@ describe('LevelingUserPage', () => {
                         isBot: false,
                         inServer: false,
                         leftAt: '2026-10-29T12:00:00.000Z',
+                        avatarUrl: keptAvatar,
                     },
                 ],
             },
@@ -150,5 +152,6 @@ describe('LevelingUserPage', () => {
 
         expect(await screen.findByRole('heading', { name: 'Ex Brat' })).toBeTruthy();
         expect(screen.getByText('@kittenuser')).toBeTruthy();
+        expect(document.querySelector(`img[src="${keptAvatar}"]`)).not.toBeNull();
     });
 });

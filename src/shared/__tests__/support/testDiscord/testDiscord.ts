@@ -2,7 +2,7 @@ import { GatewayIntentBits, type Client, type Guild, type PermissionsString } fr
 import { GatewayLink } from './gateway';
 import { ServerGuild, type ServerMember } from './handles';
 import { createRestTransport, type RecordedRequest, type TransportLog } from './restRouter';
-import { ServerState } from './serverState';
+import { ServerState, type AccountChange } from './serverState';
 import { createTestClient, redirectToTransport } from './testClient';
 import { TestDiscordError } from './testDiscordError';
 
@@ -64,11 +64,11 @@ export class TestDiscord {
     }
 
     /**
-     * A person changed their account's own names — handle or display name — which every
-     * server they are in sees. Takes a member handle for the account; the account is the
-     * same in every guild.
+     * A person changed their account's own names — handle or display name — or its avatar,
+     * which every server they are in sees. Takes a member handle for the account; the account
+     * is the same in every guild.
      */
-    renameUser(member: ServerMember, names: { readonly username?: string; readonly globalName?: string | null }): void {
+    renameUser(member: ServerMember, names: AccountChange): void {
         this.state.renameUser(member.id, names);
     }
 

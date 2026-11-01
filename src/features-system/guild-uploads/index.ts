@@ -12,7 +12,12 @@ export {
     type GuildUploadFile,
     type GuildUploadSize,
 } from './data/guildUploadsRepo';
-export { IMAGE_CONTENT_TYPES, IMAGE_EXTENSIONS } from './logic/detectImageType';
+export {
+    detectImageType,
+    IMAGE_CONTENT_TYPES,
+    IMAGE_EXTENSIONS,
+    type ImageContentType,
+} from './logic/detectImageType';
 export { storeGuildUpload } from './logic/storeGuildUpload';
 export { deleteGuildUpload, type DeleteGuildUploadOutcome } from './logic/deleteGuildUpload';
 export { readMessageUploads, uploadSizesFor, type MessageUploadRead } from './logic/readMessageUploads';
