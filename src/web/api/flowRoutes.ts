@@ -21,6 +21,7 @@ import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowS
 import { NEW_FLOW_SCOPE, type ReadinessScope } from '../../features/flows/logic/readinessScope';
 import { loadUploadIndex, uploadIndexCovers, type UploadIndex } from '../../features/flows/logic/uploadReferences';
 import { unwiredResourceKeys } from '../../features/flows/logic/unwiredResources';
+import { wireBoundResources } from '../../features/flows/logic/wireBoundResources';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
     DECLARATIONS_UNREADABLE,
@@ -905,12 +906,6 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             }
             graph = withDeclaredNodeData(structural.graph);
         }
-        const request: FlowPutRequest = {
-            name: body.name,
-            enabled: body.enabled,
-            graph,
-            baseUpdatedAt: body.baseUpdatedAt,
-        };
 
         /*
          * Read before the transaction, never inside it: `mutate` holds sqlite's one
@@ -922,6 +917,19 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
          * regardless, so a malformed journey row can never hold a live flow on.
          */
         const declared = await readDeclarations(guildId, flowId);
+
+        // The builder sends a picked declared resource with its id empty, installed or not;
+        // the bound ids go in here, before the transaction for the same reason, so a live
+        // flow's save is judged on what it will run rather than drafted "until installed".
+        if (graph && declared.ok && declared.journeyKey) {
+            graph = await wireBoundResources(guild, declared.journeyKey, graph);
+        }
+        const request: FlowPutRequest = {
+            name: body.name,
+            enabled: body.enabled,
+            graph,
+            baseUpdatedAt: body.baseUpdatedAt,
+        };
         if (isRefusable(request) && !declared.ok) {
             return c.json({ error: declared.error }, 500);
         }

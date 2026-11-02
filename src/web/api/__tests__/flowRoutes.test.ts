@@ -69,8 +69,10 @@ const flowJourneyLinksRepoMock = {
     detachFlow: vi.fn(),
 };
 
+// Nothing bound: a save's write-in of bound ids (`wireBoundResources`) finds none to write.
 const resourceBindingsRepoMock = {
     listByGuild: vi.fn().mockResolvedValue([]),
+    listByJourney: vi.fn().mockResolvedValue([]),
 };
 
 vi.mock('../../../features/flows/data/flowsRepo', () => ({ flowsRepo: flowsRepoMock }));

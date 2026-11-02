@@ -174,5 +174,8 @@ export function draftOnlySaveMessage(problems: number, uninstalled: readonly str
         const named = uninstalled.map((key) => `"${key}"`).join(', ');
         until.push(`${named} ${uninstalled.length === 1 ? 'is' : 'are'} installed`);
     }
-    return `Saved as a draft only — the live flow keeps running the last working version until ${until.join(' and ')}.`;
+    const sentence = `Saved as a draft only — the live flow keeps running the last working version until ${until.join(' and ')}.`;
+    // An install does not touch the draft, so the way out is the save after it — the flow stays on.
+    if (uninstalled.length === 0) return sentence;
+    return `${sentence} Install ${uninstalled.length === 1 ? 'it' : 'them'}, then save again.`;
 }

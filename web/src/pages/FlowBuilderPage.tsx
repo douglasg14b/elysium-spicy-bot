@@ -1669,20 +1669,10 @@ function FlowBuilder() {
             setConfirmInstall(false);
             setInstallOpen(false);
 
-            // Flips the toolbar to its installed face without a reload.
+            // Flips the toolbar to its installed face without a reload. The canvas keeps its
+            // picks with the ids empty, as the pickers always leave them: the server writes
+            // the bound ids into every save, so there is nothing to reload for.
             void rereadPublished();
-
-            // The install wrote ids into this flow's nodes, so what is on screen is now
-            // behind the server. Reloading would discard unsaved canvas edits, so the
-            // author is told instead and reopens when they are ready.
-            if (result.writtenCount > 0) {
-                notifications.show({
-                    color: 'brand',
-                    title: 'Reopen to see the new ids',
-                    message:
-                        'Your blocks now point at the channels that were just created. Reload this flow to see them filled in.',
-                });
-            }
         } catch (err) {
             /*
              * Whether this touched the guild depends on the status, not on the error's

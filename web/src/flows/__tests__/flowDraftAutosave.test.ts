@@ -132,9 +132,11 @@ describe('a save that landed on the draft only', () => {
     });
 
     it('names the resources still to install, alone or beside the problems', () => {
-        expect(draftOnlySaveMessage(0, ['qa-channel'])).toMatch(/until "qa-channel" is installed\.$/);
+        expect(draftOnlySaveMessage(0, ['qa-channel'])).toMatch(
+            /until "qa-channel" is installed\. Install it, then save again\.$/
+        );
         expect(draftOnlySaveMessage(2, ['qa-channel', 'vip-role'])).toMatch(
-            /until these 2 problems are fixed and "qa-channel", "vip-role" are installed\.$/
+            /until these 2 problems are fixed and "qa-channel", "vip-role" are installed\. Install them, then save again\.$/
         );
     });
 });

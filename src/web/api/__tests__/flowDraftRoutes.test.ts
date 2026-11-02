@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ensureBlocksDiscovered } from '../../../features/flows/blocks/registry';
 import { FLOW_GRAPH_VERSION, type FlowGraph } from '../../../features/flows/data/flowGraph';
 import { flowJourneyLinksRepo, journeysRepo } from '../../../features/provisioning';
+import { resourceBindingsRepo } from '../../../features/provisioning/data/resourceBindingsRepo';
 import { database } from '../../../features-system/data-persistence/database';
 import { migrateTestDatabase } from '../../../features-system/data-persistence/__tests__/support/migrateTestDatabase';
 import { fakeGuild } from '../../../features/flows/__tests__/support/fakeGuild';
@@ -218,6 +219,31 @@ describe('saving an incomplete graph onto a live flow', () => {
         expect(saved.body.draft.issues).toEqual([]);
         const stored = await send<FlowBody>(ALICE, 'GET', `/flows/${live.flowId}`);
         expect(stored.body.graph).toEqual(postingTo('111111111111111111'));
+    });
+
+    it('fills a bound resource in rather than drafting a canvas that left its id empty', async () => {
+        // The builder's picker leaves the id empty even once installed, and its canvas is
+        // not reloaded after an install — so every save arrives like this one.
+        const live = await flowWith(postingTo(''));
+        await declareQaChannel(live);
+        await resourceBindingsRepo.upsertBinding({
+            guildId: GUILD_ID,
+            owner: { kind: 'journey', key: `qa-${live.flowId}` },
+            resourceKey: 'qa-channel',
+            kind: 'textChannel',
+            state: 'adopted',
+            discordId: '111111111111111111',
+            name: 'questions',
+        });
+        expect((await send(ALICE, 'PUT', `/flows/${live.flowId}`, { graph: postingTo('') })).status).toBe(200);
+        expect((await send(ALICE, 'PUT', `/flows/${live.flowId}`, { enabled: true })).status).toBe(200);
+
+        const saved = await send<{ savedAs: string; graph: FlowGraph }>(ALICE, 'PUT', `/flows/${live.flowId}`, {
+            graph: postingTo(''),
+        });
+
+        expect(saved.body).toMatchObject({ savedAs: 'flow', graph: postingTo('111111111111111111') });
+        expect(await draftsOf(live.flowId)).toEqual([]);
     });
 
     it('stores it on the flow when the same request switches the flow off', async () => {
