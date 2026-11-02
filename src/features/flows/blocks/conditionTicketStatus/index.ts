@@ -8,7 +8,8 @@ import {
     TICKET_ID_FIELD,
     ticketChoiceShape,
 } from '../../logic/ticketChoice';
-import type { TicketStatus } from '../../../tickets';
+import { ticketSubjectOutputs, writeTicketSubjectOutputs } from '../../logic/ticketSubjectOutputs';
+import { TICKET_STATUSES, type TicketStatus } from '../../../tickets';
 import type { BlockManifest } from '../manifest';
 
 export const CONDITION_TICKET_STATUS = 'condition.ticketStatus';
@@ -77,15 +78,18 @@ export const block: BlockManifest<TicketStatusConfig> = {
             warnIfUnconnected: { whenField: TICKET_CHOICE_FIELD.key, equals: ['here'] },
         },
     ],
-    outputs: [],
+    // Who the ticket is for, on every exit that found one — not No ticket, which found nothing.
+    outputs: [...ticketSubjectOutputs(TICKET_STATUSES)],
     requires: [],
     capabilities: [],
     emits: [],
     canSuspend: false,
     async run(config, context) {
         const chosen = await findChosenTicket(config, context, 'Ticket Status?');
-        return chosen.kind === 'found'
-            ? exitFor(chosen.ticket.status)
-            : { kind: 'continue', handle: TICKET_STATUS_NO_TICKET_HANDLE };
+        if (chosen.kind !== 'found') {
+            return { kind: 'continue', handle: TICKET_STATUS_NO_TICKET_HANDLE };
+        }
+        writeTicketSubjectOutputs(context, chosen.ticket.subjectId);
+        return exitFor(chosen.ticket.status);
     },
 };

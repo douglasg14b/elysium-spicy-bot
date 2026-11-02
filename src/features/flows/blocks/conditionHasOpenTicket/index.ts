@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { BlockManifest } from '../manifest';
 import { MEMBER_CHOICE_CARD_PART, MEMBER_CHOICE_FIELD, memberChoiceSchema, memberFor } from '../memberChoice';
+import { ticketSubjectOutputs, writeTicketSubjectOutputs } from '../../logic/ticketSubjectOutputs';
 import { findOpenTicket, TICKET_VARIABLES } from '../../../tickets';
 
 export const CONDITION_HAS_OPEN_TICKET = 'condition.hasOpenTicket';
@@ -77,6 +78,9 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
             valueKind: 'channel',
             handle: 'true',
         },
+        // Who it is for — the member asked about, so mostly redundant with the run's own subject, but the
+        // same names Ticket Status? writes: one Send Message can read either block's.
+        ...ticketSubjectOutputs(['true']),
     ],
     // The member choice says who it needs: the member, or whoever set this off.
     requires: [],
@@ -84,12 +88,15 @@ export const block: BlockManifest<HasOpenTicketConfig> = {
     emits: [],
     canSuspend: false,
     async run(config, context) {
-        const ticket = await findOpenTicket(context.guild.id, memberFor(context, config.member).id, config.ticketType);
+        const memberId = memberFor(context, config.member).id;
+        const ticket = await findOpenTicket(context.guild.id, memberId, config.ticketType);
         if (!ticket) {
             return { kind: 'continue', handle: 'false' };
         }
 
         context.setOutput(TICKET_VARIABLES.ticketId, ticket.id);
+        // The lookup is by subject, so the ticket's member is the one asked about.
+        writeTicketSubjectOutputs(context, memberId);
         /*
          * A ticket is a record first and its channel second: one whose channel was
          * deleted is still open, and still a Yes. `null` is written rather than

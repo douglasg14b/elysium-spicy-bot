@@ -10,7 +10,12 @@ import { parseNodeConfig, type BlockManifest } from '../../manifest';
 const getTicket = vi.fn();
 const getTicketByChannel = vi.fn();
 
-vi.mock('../../../../tickets', () => ({ getTicket, getTicketByChannel }));
+vi.mock('../../../../tickets', () => ({
+    getTicket,
+    getTicketByChannel,
+    TICKET_STATUSES: ['open', 'closed', 'deleted'],
+    TICKET_VARIABLES: { ticketSubjectId: 'ticketSubjectId', ticketSubjectMention: 'ticketSubjectMention' },
+}));
 
 const { block } = await import('../index');
 
@@ -23,11 +28,14 @@ async function runOn(data: Record<string, unknown>, runContext: never) {
     return registered.run(parsed.data, runContext);
 }
 
-const ticket = { id: 7, guildId: 'guild-1', status: 'open', channelId: 'channel-1' };
+const ticket = { id: 7, guildId: 'guild-1', status: 'open', channelId: 'channel-1', subjectId: '555' };
+
+const setOutput = vi.fn();
 
 function context(channelId: string | null = 'channel-1', parentId?: string) {
     return {
         guild: { id: 'guild-1' },
+        setOutput,
         ...(channelId === null
             ? {}
             : { channel: { id: channelId, parentId: parentId ?? null, isThread: () => parentId !== undefined } }),
@@ -107,6 +115,41 @@ describe('condition.ticketStatus on the ticket in this channel', () => {
 
         expect(getTicketByChannel).toHaveBeenCalledWith('channel-1');
         expect(getTicket).not.toHaveBeenCalled();
+    });
+});
+
+describe('condition.ticketStatus outputs', () => {
+    it.each(['open', 'closed', 'deleted'] as const)(
+        "records who the ticket is for on %s, not the run's own subject",
+        async (status) => {
+            getTicketByChannel.mockResolvedValue({ ...ticket, status });
+
+            await block.run(HERE, context());
+
+            expect(setOutput).toHaveBeenCalledWith('ticketSubjectId', '555');
+            expect(setOutput).toHaveBeenCalledWith('ticketSubjectMention', '<@555>');
+        }
+    );
+
+    it('writes nothing on No ticket', async () => {
+        getTicketByChannel.mockResolvedValue(null);
+
+        await block.run(HERE, context('general'));
+
+        expect(setOutput).not.toHaveBeenCalled();
+    });
+
+    it('declares both names on every exit that finds a ticket, and none on No ticket', () => {
+        const declared = (block.outputs ?? []).map((output) => ({
+            key: 'key' in output ? output.key : undefined,
+            handle: output.handle,
+        }));
+
+        for (const handle of ['open', 'closed', 'deleted']) {
+            expect(declared).toContainEqual({ key: 'ticketSubjectId', handle });
+            expect(declared).toContainEqual({ key: 'ticketSubjectMention', handle });
+        }
+        expect(declared.some(({ handle }) => handle === 'noTicket')).toBe(false);
     });
 });
 
