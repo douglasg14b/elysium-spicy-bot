@@ -55,6 +55,7 @@ import {
     IconEye,
     IconPackageExport,
     IconPackageImport,
+    IconRadar,
     IconStack2,
 } from '@tabler/icons-react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -135,7 +136,9 @@ import {
     summariseInstallOutcome,
     summariseInstallPlan,
 } from '../flows/installSummary';
+import { editedInstalledMessageKeys } from '../flows/editedInstalledMessages';
 import { InstalledResourcesDialog } from '../flows/InstalledResourcesDialog';
+import { JourneyDriftDialog } from '../flows/JourneyDriftDialog';
 import { installedFromPublished } from '../flows/publishedSummary';
 import { issuesByNode, problemCount, summarizeIssues } from '../flows/validationIssues';
 import { convergingTriggerCounts } from '../flows/convergingTriggers';
@@ -394,7 +397,15 @@ function FlowBuilder() {
      * rather than written over theirs. Set wherever the list is (`adoptStoredResources`).
      */
     const [resourcesVersion, setResourcesVersion] = useState<string | null>(null);
+    /** The list the server last gave this page, to tell a save's answer from what it replaced. */
+    const adoptedResources = useRef<readonly ResourceDeclaration[]>([]);
+    /**
+     * Installed messages edited since the page opened, which the server still shows as posted.
+     * Install does not touch them; the drift check does, so the toolbar points there.
+     */
+    const [editedMessageKeys, setEditedMessageKeys] = useState<readonly string[]>([]);
     const adoptStoredResources = useCallback((stored: StoredResources) => {
+        adoptedResources.current = stored.resources;
         setDeclaredResources(stored.resources);
         setResourcesVersion(stored.updatedAt);
     }, []);
@@ -1184,11 +1195,31 @@ function FlowBuilder() {
      */
     const onResourcesSaved = useCallback(
         (stored: StoredResources) => {
+            const edited = editedInstalledMessageKeys({
+                before: adoptedResources.current,
+                after: stored.resources,
+                installedKeys: installedResourceKeys,
+            });
+            if (edited.length > 0) {
+                setEditedMessageKeys((current) => [...new Set([...current, ...edited])]);
+            }
             adoptStoredResources(stored);
             if (!attachment?.linked && (stored.updatedAt !== null || attachment)) void refreshAttachment();
         },
-        [adoptStoredResources, attachment, refreshAttachment]
+        [adoptStoredResources, attachment, refreshAttachment, installedResourceKeys]
     );
+
+    // Another flow's edits are not this one's.
+    useEffect(() => {
+        setEditedMessageKeys([]);
+    }, [flowId]);
+
+    /** The drift check from the toolbar; opening it is the answer to the nudge, so the nudge goes. */
+    const [driftOpen, setDriftOpen] = useState(false);
+    const openDrift = (): void => {
+        setEditedMessageKeys([]);
+        setDriftOpen(true);
+    };
 
     /**
      * Attach this flow to a journey, then reload what it declares.
@@ -2090,6 +2121,11 @@ function FlowBuilder() {
                                     rightSection={<IconChevronDown size={13} />}
                                 >
                                     Installed
+                                    {editedMessageKeys.length > 0 && (
+                                        <Badge size="xs" circle variant="filled" color="orange" ml={6} aria-label="Server copy out of date">
+                                            !
+                                        </Badge>
+                                    )}
                                 </Button>
                             </Menu.Target>
                             <Menu.Dropdown>
@@ -2102,6 +2138,16 @@ function FlowBuilder() {
                                         {installedCount} resource{installedCount === 1 ? '' : 's'}
                                     </Text>
                                 </Menu.Item>
+                                {attachment?.linked && (
+                                    <Menu.Item leftSection={<IconRadar size={14} />} onClick={openDrift}>
+                                        Check for changes
+                                        <Text size="11px" c={editedMessageKeys.length > 0 ? 'orange' : 'dimmed'}>
+                                            {editedMessageKeys.length > 0
+                                                ? `${editedMessageKeys.length === 1 ? 'A message you edited is' : 'Messages you edited are'} still posted the old way`
+                                                : 'Updates edited messages and renamed channels'}
+                                        </Text>
+                                    </Menu.Item>
+                                )}
                                 {declaredResources.length > 0 && (
                                     <Menu.Item
                                         leftSection={<IconPackageImport size={14} />}
@@ -2560,6 +2606,17 @@ function FlowBuilder() {
              * blocks pointing at ids that no longer exist, so the author is told and
              * reopens when they are ready — the same bargain, struck the same way.
              */}
+            {selected && attachment?.linked && (
+                <JourneyDriftDialog
+                    opened={driftOpen}
+                    onClose={() => setDriftOpen(false)}
+                    guildId={selected.id}
+                    journeyKey={attachment.journeyKey}
+                    journeyName={attachment.sharedWith.length > 0 ? attachment.name : name || 'this flow'}
+                    subject={attachment.sharedWith.length > 0 ? 'journey' : 'flow'}
+                />
+            )}
+
             {selected && flowId && (
                 <InstalledResourcesDialog
                     opened={installedOpen}
