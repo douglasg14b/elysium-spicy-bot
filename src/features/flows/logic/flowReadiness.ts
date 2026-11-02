@@ -179,7 +179,7 @@ export function installBeforeEnablingMessage(keys: readonly string[]): string {
     const named = keys.map((key) => `"${key}"`).join(', ');
     return (
         "Install this flow's resources before turning it on — " +
-        `${named} ${keys.length === 1 ? "isn't" : "aren't"} in the server yet.`
+        `${named} ${keys.length === 1 ? "isn't" : "aren't"} set up in this flow yet.`
     );
 }
 

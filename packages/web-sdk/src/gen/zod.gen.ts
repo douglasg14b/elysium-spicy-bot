@@ -826,13 +826,14 @@ export const zInstallPlanItem = z.object({
 });
 
 /**
- * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.
+ * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless. `unwired` names resources already in the server that this flow's blocks pick but do not hold the id of yet, which an install fills in even when it creates nothing.
  */
 export const zInstallPlan = z.object({
     applicable: z.boolean(),
     blockers: z.array(z.string()),
     items: z.array(zInstallPlanItem),
-    journeyKey: z.string()
+    journeyKey: z.string(),
+    unwired: z.array(z.string())
 });
 
 export const zInstallRefusal = zErrorBody.and(z.object({

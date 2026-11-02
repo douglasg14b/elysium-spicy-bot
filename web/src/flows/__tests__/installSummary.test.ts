@@ -32,6 +32,7 @@ function plan(overrides: Partial<InstallPlan> = {}): InstallPlan {
         applicable: true,
         blockers: [],
         items: [item()],
+        unwired: [],
         ...overrides,
     };
 }
@@ -203,6 +204,23 @@ describe('summarising a plan for review', () => {
         expect(summary.problems).toEqual([]);
     });
 
+    it('offers the install when the role is already in the server but its blocks do not hold the id', () => {
+        // Nothing to create, so the old rule offered no button and nothing ever filled the id in.
+        const summary = summariseInstallPlan(
+            plan({ items: [item({ action: 'reuse', discordId: '111' })], unwired: ['approval-process'] })
+        );
+
+        expect(summary.canApply).toBe(true);
+        expect(summary.changes).toEqual([]);
+        expect(summary.headline).toContain('"approval-process"');
+    });
+
+    it('still withholds the install while something blocks it, wiring or not', () => {
+        const summary = summariseInstallPlan(plan({ applicable: false, items: [], unwired: ['approval-process'] }));
+
+        expect(summary.canApply).toBe(false);
+    });
+
     it('follows the server on applicability rather than re-deriving it', () => {
         // The server re-checks on apply regardless. A browser with its own opinion
         // would eventually offer a button that 409s.
@@ -258,6 +276,13 @@ describe('summarising what an install did', () => {
 
         expect(summary.tone).toBe('brand');
         expect(summary.title).toBe('Nothing to do');
+    });
+
+    it('says it wired the blocks when it built nothing', () => {
+        const summary = summariseInstallOutcome(result({ applied: [], writtenCount: 1, updatedFlowIds: ['f1'] }));
+
+        expect(summary.tone).toBe('brand');
+        expect(summary.title).toBe('Wired up');
     });
 
     it('is unambiguously good news on a clean install', () => {

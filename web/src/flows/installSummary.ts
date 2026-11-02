@@ -139,9 +139,19 @@ export function summariseInstallPlan(plan: InstallPlan): InstallPlanSummary {
         parts.push(`take back ${describeItems(recovering)} an interrupted install left behind`);
     }
 
+    // Already in the server, so nothing to build — but the install is what writes their ids
+    // into the blocks that picked them, and the flow cannot be switched on until it has.
+    const wiring =
+        plan.unwired.length > 0
+            ? `${joinWithAnd(plan.unwired.map((key) => `"${key}"`))} ${plan.unwired.length === 1 ? 'is' : 'are'} already in your server, but ${plan.unwired.length === 1 ? 'its' : 'their'} blocks don't know it yet. This will wire ${plan.unwired.length === 1 ? 'it' : 'them'} in.`
+            : null;
+
     return {
-        headline: parts.length > 0 ? `This will ${joinWithAnd(parts)} in your server.` : null,
-        canApply: plan.applicable && changes.length > 0,
+        headline:
+            parts.length > 0
+                ? `This will ${joinWithAnd(parts)} in your server.${wiring ? ` ${wiring}` : ''}`
+                : wiring,
+        canApply: plan.applicable && (changes.length > 0 || plan.unwired.length > 0),
         problems,
         changes,
         unchanged,
@@ -237,6 +247,14 @@ export function summariseInstallOutcome(result: InstallResult): InstallOutcomeSu
             message:
                 `${plural(created, 'thing', 'things')} made it in before this: ${result.failure}` +
                 `${wired}${stillWaiting} Run install again to pick up where it left off.`,
+        };
+    }
+
+    if (created === 0 && result.writtenCount > 0) {
+        return {
+            tone: result.unresolved.length > 0 ? 'orange' : 'brand',
+            title: 'Wired up',
+            message: `Nothing new to build.${wired}${stillWaiting}`,
         };
     }
 

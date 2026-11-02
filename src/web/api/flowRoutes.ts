@@ -20,6 +20,7 @@ import {
 import { getPublishedFlowState } from '../../features/flows/logic/publishedFlowState';
 import { NEW_FLOW_SCOPE, type ReadinessScope } from '../../features/flows/logic/readinessScope';
 import { loadUploadIndex, uploadIndexCovers, type UploadIndex } from '../../features/flows/logic/uploadReferences';
+import { unwiredResourceKeys } from '../../features/flows/logic/unwiredResources';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import {
     DECLARATIONS_UNREADABLE,
@@ -1082,7 +1083,8 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             staffRoleIds,
         });
 
-        return c.json(installPlanBody(plan), 200);
+        const unwired = await unwiredResourceKeys(guild, lookup.journey, existing.graph);
+        return c.json(installPlanBody(plan, unwired), 200);
     });
 
     /*
@@ -1147,7 +1149,7 @@ function defineFlowRoutes(router: ApiRouteRegistrar): undefined {
             return c.json(
                 {
                     error: 'This can no longer be installed as planned — your server changed since you last looked.',
-                    plan: installPlanBody(outcome.plan),
+                    plan: installPlanBody(outcome.plan, await unwiredResourceKeys(guild, lookup.journey, existing.graph)),
                 },
                 409
             );

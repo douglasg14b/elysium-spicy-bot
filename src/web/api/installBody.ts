@@ -77,11 +77,15 @@ export const InstallPlanSchema = z
         /** Guild-level problems stopping the whole apply — permissions, role hierarchy. */
         blockers: z.array(z.string()).readonly(),
         items: z.array(InstallPlanItemSchema).readonly(),
+        /** Declared resources this flow's blocks pick that are in the server but not yet written into them. */
+        unwired: z.array(z.string()).readonly(),
     })
     .openapi('InstallPlan', {
         description:
             'What installing would do, item by item, unchanged items included. `applicable` is false ' +
-            'when any blocker or blocked item stands in the way; the install re-checks it regardless.',
+            'when any blocker or blocked item stands in the way; the install re-checks it regardless. ' +
+            '`unwired` names resources already in the server that this flow\'s blocks pick but do not ' +
+            'hold the id of yet, which an install fills in even when it creates nothing.',
     });
 
 /**
@@ -146,11 +150,12 @@ export const InstallResultSchema = z
  * are copied field by field so `parentKey`, which the plan uses to order creates, stays off
  * the wire.
  */
-export function installPlanBody(plan: InstallPlan): z.infer<typeof InstallPlanSchema> {
+export function installPlanBody(plan: InstallPlan, unwired: readonly string[]): z.infer<typeof InstallPlanSchema> {
     return {
         journeyKey: plan.journeyKey,
         applicable: isPlanApplicable(plan),
         blockers: plan.blockers,
+        unwired,
         items: plan.items.map((item) => ({
             resourceKey: item.resourceKey,
             kind: item.kind,

@@ -93,6 +93,12 @@ vi.mock('../../../features/provisioning/resourceWriteBack', async (importOrigina
     return { ...actual, runResourceWriteBack: runResourceWriteBackMock };
 });
 
+/** Which bound resources the flow's blocks have not been given yet: `unwiredResources.test.ts` owns the rule. */
+const unwiredResourceKeysMock = vi.fn();
+vi.mock('../../../features/flows/logic/unwiredResources', () => ({
+    unwiredResourceKeys: unwiredResourceKeysMock,
+}));
+
 const { flowRoutes } = await import('../flowRoutes');
 
 const GUILD_ID = 'guild-1';
@@ -220,6 +226,7 @@ beforeEach(() => {
     // Most tests here do not involve a staff-gated journey; the staff describe block
     // below sets this per case.
     guildSettingsRepoMock.getStaffRoleIds.mockResolvedValue([]);
+    unwiredResourceKeysMock.mockResolvedValue([]);
 });
 
 describe('the journey must belong to this flow', () => {
@@ -549,6 +556,20 @@ describe('the plan on the wire', () => {
         // Including the item needing no work: "what will this do to my server" is only
         // answerable if the unchanged things are visible too.
         expect(body.items.map((item) => item.action)).toEqual(['create', 'reuse']);
+    });
+
+    it('names the resources already in the server that the flow\'s blocks still lack, so install is offered', async () => {
+        previewInstallMock.mockResolvedValue({
+            guildId: GUILD_ID,
+            journeyKey: FLOW_ID,
+            blockers: [],
+            items: [{ resourceKey: 'qa-channel', kind: 'textChannel', action: 'reuse', name: 'questions', discordId: '111' }],
+        } satisfies InstallPlan);
+        unwiredResourceKeysMock.mockResolvedValue(['qa-channel']);
+
+        const body = (await (await getPlan()).json()) as PlanBody & { unwired: string[] };
+
+        expect(body.unwired).toEqual(['qa-channel']);
     });
 
     it('refuses a journey whose permissions name a subject', async () => {

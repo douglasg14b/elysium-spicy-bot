@@ -382,7 +382,7 @@ describe('switching on a flow that is waiting on its install', () => {
 
         expect(refused.status).toBe(400);
         expect(refused.body.error).toBe(
-            'Install this flow\'s resources before turning it on — "qa-channel" isn\'t in the server yet.'
+            'Install this flow\'s resources before turning it on — "qa-channel" isn\'t set up in this flow yet.'
         );
         // Ready, just not installed: no problem on the canvas, and none on the list's chip.
         const stored = await send<FlowBody>(ALICE, 'GET', `/flows/${flow.flowId}`);

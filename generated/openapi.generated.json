@@ -3730,7 +3730,7 @@
                 "type": "object"
             },
             "InstallPlan": {
-                "description": "What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.",
+                "description": "What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless. `unwired` names resources already in the server that this flow's blocks pick but do not hold the id of yet, which an install fills in even when it creates nothing.",
                 "properties": {
                     "applicable": {
                         "type": "boolean"
@@ -3749,13 +3749,20 @@
                     },
                     "journeyKey": {
                         "type": "string"
+                    },
+                    "unwired": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     }
                 },
                 "required": [
                     "journeyKey",
                     "applicable",
                     "blockers",
-                    "items"
+                    "items",
+                    "unwired"
                 ],
                 "type": "object"
             },

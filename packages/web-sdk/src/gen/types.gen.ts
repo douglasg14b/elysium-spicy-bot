@@ -1022,13 +1022,14 @@ export type Health = {
 };
 
 /**
- * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless.
+ * What installing would do, item by item, unchanged items included. `applicable` is false when any blocker or blocked item stands in the way; the install re-checks it regardless. `unwired` names resources already in the server that this flow's blocks pick but do not hold the id of yet, which an install fills in even when it creates nothing.
  */
 export type InstallPlan = {
     applicable: boolean;
     blockers: Array<string>;
     items: Array<InstallPlanItem>;
     journeyKey: string;
+    unwired: Array<string>;
 };
 
 export type InstallPlanItem = {
