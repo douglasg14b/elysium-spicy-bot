@@ -9,6 +9,7 @@ import {
     segmentsOf,
     UNKNOWN_CHANNEL_LABEL,
     UNKNOWN_ROLE_LABEL,
+    withKnownEmojis,
 } from '../mentions';
 
 const VERIFIED: GuildRole = { id: '222222222222222222', name: 'Verified', color: 0xe74c3c, position: 3, owner: null };
@@ -96,8 +97,49 @@ describe('a mentioned channel', () => {
     });
 
     it('is offered only among text channels — a category is somewhere nobody posts', () => {
-        const { channels } = mentionListsOf([], undefined, [LOUNGE, GENERAL]);
+        const { channels } = mentionListsOf([], undefined, [LOUNGE, GENERAL], undefined);
         expect(channels.map((channel) => channel.id)).toEqual([GENERAL.id]);
+    });
+});
+
+describe('a mentioned emoji', () => {
+    const PARTY = { id: '910000000000000001', name: 'meowparty', animated: true };
+    const HEART = { id: '910000000000000002', name: 'meowheart', animated: false };
+
+    it('is cut out of copy beside the other mentions, a moving one marked as such', () => {
+        expect(segmentsOf('<a:meowparty:910000000000000001> hi <:meowheart:910000000000000002>', true)).toEqual([
+            { kind: 'emoji', text: '<a:meowparty:910000000000000001>', ...PARTY },
+            { kind: 'text', text: ' hi ' },
+            { kind: 'emoji', text: '<:meowheart:910000000000000002>', ...HEART },
+        ]);
+    });
+
+    it('is left as written where the part does not show mentions, and when built from a token', () => {
+        expect(segmentsOf('<:meowheart:910000000000000002>', false)).toEqual([
+            { kind: 'text', text: '<:meowheart:910000000000000002>' },
+        ]);
+        expect(segmentsOf('<:{{var.name}}:910000000000000002>', true)).toEqual([
+            { kind: 'text', text: '<:' },
+            { kind: 'token', text: '{{var.name}}' },
+            { kind: 'text', text: ':910000000000000002>' },
+        ]);
+    });
+
+    it('is written in place of each complete :name: the server has an emoji for, and nothing else', () => {
+        const emojis = [PARTY, HEART];
+        expect(withKnownEmojis('# :meowparty: Welcome :meowheart:', emojis)).toBe(
+            '# <a:meowparty:910000000000000001> Welcome <:meowheart:910000000000000002>'
+        );
+        // An unknown name, an unfinished one and an emoji already written are left alone.
+        expect(withKnownEmojis(':nothere: :meowpar <:meowheart:910000000000000002>', emojis)).toBe(
+            ':nothere: :meowpar <:meowheart:910000000000000002>'
+        );
+        expect(withKnownEmojis(':meowparty:', [])).toBe(':meowparty:');
+    });
+
+    it('is offered by the lists it is read from, none while the server has not answered', () => {
+        expect(mentionListsOf([], undefined, [], [PARTY]).emojis).toEqual([PARTY]);
+        expect(mentionListsOf([], undefined, [], undefined).emojis).toEqual([]);
     });
 });
 

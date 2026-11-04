@@ -142,7 +142,7 @@ const INSPECTOR_MENTION_TEXT: CSSProperties = {
 /**
  * Autosizing multi-line text — or, for a field whose text lands where Discord shows a mention
  * by name (`showsMentions`), the message window's mention box in the inspector's input frame:
- * `@` offers the server's roles, managed ones too, and `#` its text channels.
+ * `@` offers the server's roles, managed ones too, `#` its text channels and `:` its emoji.
  */
 export function LongTextControl({
     field,
@@ -155,8 +155,11 @@ export function LongTextControl({
     const hint = limitHint(field);
     const { showsMentions } = field;
     const mentions = useMemo(
-        () => (showsMentions ? mentionListsOf(context.roles, context.managedRoles, context.channels) : undefined),
-        [showsMentions, context.roles, context.managedRoles, context.channels]
+        () =>
+            showsMentions
+                ? mentionListsOf(context.roles, context.managedRoles, context.channels, context.serverEmojis)
+                : undefined,
+        [showsMentions, context.roles, context.managedRoles, context.channels, context.serverEmojis]
     );
 
     return (

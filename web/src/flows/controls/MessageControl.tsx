@@ -35,8 +35,8 @@ export function MessageControl({ field, value, onChange, context, config, error,
         [blockListeners, flowId, nodeId]
     );
     const mentions = useMemo(
-        () => mentionListsOf(context.roles, context.managedRoles, context.channels),
-        [context.roles, context.managedRoles, context.channels]
+        () => mentionListsOf(context.roles, context.managedRoles, context.channels, context.serverEmojis),
+        [context.roles, context.managedRoles, context.channels, context.serverEmojis]
     );
 
     return (

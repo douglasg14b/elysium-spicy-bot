@@ -285,7 +285,10 @@ export function ResourcesPanel({
     const [filter, setFilter] = useState('');
     const listenedKeys = useMemo(() => listenedMessageKeys(listeners), [listeners]);
     // What a message row's text may name: every role, managed ones too, and the server's text channels.
-    const mentions = useMemo(() => mentionListsOf(roles, managedRoles, channels), [roles, managedRoles, channels]);
+    const mentions = useMemo(
+        () => mentionListsOf(roles, managedRoles, channels, serverEmojis),
+        [roles, managedRoles, channels, serverEmojis]
+    );
     /**
      * Which rows are open, by list position.
      *

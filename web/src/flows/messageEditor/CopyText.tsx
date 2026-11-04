@@ -3,12 +3,14 @@
  * as something the run fills in; in Preview, each token replaced by the builder's stand-in
  * (`previewCopy`), a ping shown the way Discord shows one. In both, a mention in a part where
  * Discord shows one is drawn as Discord draws it: a role (`<@&id>`) as `@Role name` in the
- * role's colour, a channel (`<#id>`) as `#channel-name` in the mention blurple.
+ * role's colour, a channel (`<#id>`) as `#channel-name` in the mention blurple, an emoji
+ * (`<:name:id>`) as its picture.
  */
 
 import { Fragment, type ReactNode } from 'react';
 import { previewCopy } from '../copyPreview';
 import { DISCORD } from './discordLook';
+import { EmojiImage } from './EmojiImage';
 import { mentionLook, segmentsOf, type MentionLists } from './mentions';
 
 /**
@@ -29,7 +31,7 @@ const TOKEN_STYLE = {
 const MENTION_STYLE = { ...DISCORD.mention, borderRadius: 3, padding: '0 2px' } as const;
 
 /** Lists for the type's sake alone: a mention is only ever cut out of copy when lists were given. */
-const NO_MENTIONS: MentionLists = { roles: [], channels: [] };
+const NO_MENTIONS: MentionLists = { roles: [], channels: [], emojis: [] };
 
 interface CopyTextProps {
     readonly text: string;
@@ -59,6 +61,8 @@ export function CopyText({ text, preview, knownVariables, mentions }: CopyTextPr
                             </span>
                         );
                     }
+                    case 'emoji':
+                        return <EmojiImage key={index} id={segment.id} name={segment.name} animated={segment.animated} />;
                     case 'token': {
                         if (!preview) {
                             return (

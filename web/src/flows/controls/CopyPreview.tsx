@@ -9,6 +9,7 @@
 import { Fragment, type ReactNode } from 'react';
 import { Text } from '@mantine/core';
 import { hasPreviewableTokens, previewCopy } from '../copyPreview';
+import { EmojiImage } from '../messageEditor/EmojiImage';
 import { mentionLook, segmentsOf, type MentionLists } from '../messageEditor/mentions';
 
 interface CopyPreviewProps {
@@ -18,7 +19,8 @@ interface CopyPreviewProps {
     knownVariables: readonly string[];
     /**
      * For a field whose text lands where Discord shows a mention by name: `<@&id>` and `<#id>`
-     * are drawn as the role and the channel, as the box above draws them. Absent, as written.
+     * are drawn as the role and the channel, `<:name:id>` as the emoji, as the box above draws
+     * them. Absent, as written.
      */
     mentions?: MentionLists;
 }
@@ -39,6 +41,8 @@ function withMentionNames(text: string, mentions: MentionLists): ReactNode[] {
                     </span>
                 );
             }
+            case 'emoji':
+                return <EmojiImage key={index} id={segment.id} name={segment.name} animated={segment.animated} />;
             // A token left in the filled-in copy is one nothing fills: it is shown as written.
             case 'text':
             case 'token':

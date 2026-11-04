@@ -5,6 +5,7 @@ import type {
     BlockConfigField,
     DiscordMessage,
     GuildChannel,
+    GuildEmoji,
     GuildRole,
     GuildUpload,
     ListGuildUploadsResponse,
@@ -48,12 +49,14 @@ function contextWith(
     uploads: GuildUploads,
     roles: GuildRole[],
     managedRoles: readonly ManagedRole[] | undefined,
-    channels: GuildChannel[]
+    channels: GuildChannel[],
+    serverEmojis: readonly GuildEmoji[] | undefined
 ): ControlContext {
     return {
         roles,
         ...(managedRoles ? { managedRoles } : {}),
         channels,
+        ...(serverEmojis ? { serverEmojis } : {}),
         ticketTypes: [],
         variables: [],
         requirements: ALL_REQUIREMENTS_AVAILABLE,
@@ -72,10 +75,20 @@ interface HarnessProps {
     readonly roles?: GuildRole[];
     readonly managedRoles?: readonly ManagedRole[];
     readonly channels?: GuildChannel[];
+    readonly serverEmojis?: readonly GuildEmoji[];
 }
 
 /** The control on a node whose value follows its own `onChange`, as the inspector's does. */
-function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], managedRoles, channels = [] }: HarnessProps) {
+function Harness({
+    initial,
+    emitted,
+    issues,
+    uploads = NO_UPLOADS,
+    roles = [],
+    managedRoles,
+    channels = [],
+    serverEmojis,
+}: HarnessProps) {
     const [value, setValue] = useState<unknown>(initial);
     return (
         <MessageControl
@@ -86,7 +99,7 @@ function Harness({ initial, emitted, issues, uploads = NO_UPLOADS, roles = [], m
                 emitted.push(message);
                 setValue(message);
             }}
-            context={contextWith(uploads, roles, managedRoles, channels)}
+            context={contextWith(uploads, roles, managedRoles, channels, serverEmojis)}
             issues={issues}
         />
     );
@@ -450,6 +463,62 @@ describe('channel mentions', () => {
         fireEvent.keyDown(box, { key: 'Escape', code: 'Escape', keyCode: 27 });
         expect(screen.queryByRole('option', { name: '#gentle-reminders' })).toBeNull();
         expect(screen.getByRole('textbox', { name: 'Plain text' })).toBeTruthy();
+    });
+});
+
+describe('emoji', () => {
+    const PARTY: GuildEmoji = { id: '910000000000000001', name: 'meowparty', animated: true };
+    const HEART: GuildEmoji = { id: '910000000000000002', name: 'meowheart', animated: false };
+    const EMOJIS = [PARTY, HEART];
+
+    it('draws an emoji as its picture where Discord does, and as written in a title', async () => {
+        await openWindow({
+            initial: {
+                embeds: [{ title: `Hi <:meowheart:${HEART.id}>`, description: `# <a:meowparty:${PARTY.id}> Welcome` }],
+            },
+            emitted: [],
+            serverEmojis: EMOJIS,
+        });
+
+        const body = screen.getByRole('button', { name: 'Embed 1 body' });
+        const picture = within(body).getByRole('img', { name: ':meowparty:' });
+        expect(picture.getAttribute('src')).toBe(`https://cdn.discordapp.com/emojis/${PARTY.id}.gif?size=48`);
+        expect(screen.getByRole('button', { name: 'Embed 1 title' }).textContent).toBe(`Hi <:meowheart:${HEART.id}>`);
+    });
+
+    it("offers the server's emoji on : and writes the one picked as <:name:id>, shown as :name: while typing", async () => {
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({ initial: { content: 'Hi' }, emitted, serverEmojis: EMOJIS });
+
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        const box = screen.getByRole('textbox', { name: 'Plain text' });
+        // A lone colon offers nothing; two letters do, and narrow the list.
+        await user.type(box, ' :');
+        expect(screen.queryByRole('option')).toBeNull();
+        await user.type(box, 'me');
+        expect(screen.getByRole('option', { name: ':meowparty:' })).toBeTruthy();
+        expect(screen.getByRole('option', { name: ':meowheart:' })).toBeTruthy();
+        await user.type(box, 'owpa');
+        expect(screen.queryByRole('option', { name: ':meowheart:' })).toBeNull();
+        await user.click(screen.getByRole('option', { name: ':meowparty:' }));
+
+        expect(last(emitted)).toEqual({ content: `Hi <a:meowparty:${PARTY.id}> `, embeds: [] });
+        expect((box as HTMLTextAreaElement).value).toBe('Hi :meowparty: ');
+    });
+
+    it('writes a pasted :name: the server has an emoji for as that emoji, and leaves any other as typed', async () => {
+        const emitted: (DiscordMessage | undefined)[] = [];
+        const { user } = await openWindow({ initial: { content: '' }, emitted, serverEmojis: EMOJIS });
+
+        await user.click(screen.getByRole('button', { name: 'Plain text' }));
+        const box = screen.getByRole('textbox', { name: 'Plain text' });
+        await user.click(box);
+        await user.paste('# :meowparty: Welcome :nothere: to <:meowheart:910000000000000002> ');
+
+        expect(last(emitted)).toEqual({
+            content: `# <a:meowparty:${PARTY.id}> Welcome :nothere: to <:meowheart:${HEART.id}> `,
+            embeds: [],
+        });
     });
 });
 
