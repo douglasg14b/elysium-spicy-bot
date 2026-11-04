@@ -8,7 +8,7 @@ import { buildButtonRows, serverEmojiIds, type MessageButton } from '../../provi
 /**
  * Posting a block's `message` field, and the buttons under it: the checks a rendered message
  * must pass, its uploads, and what `channel.send` is handed — shared by every block that posts
- * one (Send Message, and Open Ticket's message above the ticket card), so both judge, attach and
+ * one (Send Message, and Open Ticket's message under the ticket card), so both judge, attach and
  * button a message the same way.
  *
  * A block calls the two in its own order — {@link renderedMessageIssue} first, since it costs

@@ -35,7 +35,7 @@ export const openTicketConfigSchema = z
         // declare produces a node whose key is simply unset, which the conformance
         // gate rightly refuses. Absent and empty mean the same thing to `run`.
         reason: z.string().max(1000).optional(),
-        // The flow's own message, posted in the ticket channel above the ticket card, and
+        // The flow's own message, posted in the ticket channel under the ticket card, and
         // the buttons under it (the field's `buttonsKey`). Both optional: unset posts the
         // card alone, as every node saved before these existed does.
         message: messageConfigSchema.optional(),
@@ -72,7 +72,7 @@ async function readyMessage(config: OpenTicketConfig, guild: Guild): Promise<Mes
  * in the ticket service, where they are testable without a gateway and reachable
  * by the mod-facing commands too. This block only supplies the subject and
  * carries the result back into the run — and posts the flow's own message, if the node has
- * one, in the ticket channel above the card (`messageWithButtons`, as Send Message posts).
+ * one, in the ticket channel under the card (`messageWithButtons`, as Send Message posts).
  *
  * `openerId` is null here — a flow opened this, no human filed it. That case did
  * not previously exist: the old creation path read its opener out of
@@ -116,7 +116,7 @@ export const block: BlockManifest<OpenTicketConfig> = {
             key: 'message',
             label: MESSAGE_LABEL,
             description:
-                'Posted in the ticket channel, above the ticket card — words, embeds, buttons. Leave it alone and the card goes in by itself.',
+                'Posted in the ticket channel, under the ticket card — words, embeds, buttons. Leave it alone and the card goes in by itself.',
             control: 'message',
             swatches: ['#00A2FF', '#FF2D95', '#7A5CFF', '#FF6B35'],
             buttonsKey: 'buttons',
@@ -221,22 +221,21 @@ export const block: BlockManifest<OpenTicketConfig> = {
         const attached = await attachTicketChannel(ticket.id, channel.id);
         if (!attached.ok) throw attached.error;
 
-        // The flow's message first, so the card — what the ticket is run from — is the
-        // newest thing in the channel, and the message is there before the ticket is
-        // announced as opened (below), so a Ticket Event flow's post lands under it. A send
-        // failing here leaves the half-made ticket a failed card send leaves too: a row and
-        // a channel, no state message, no announcement.
-        if (flowMessage) {
-            const posted = await channel.send(flowMessage.options);
-            await recordPostedMessage({ posted, buttons: config.buttons ?? [], context, ticketId: ticket.id });
-        }
-
         const message = await channel.send({
             content: `<@${ticket.subjectId}>`,
             embeds: [buildTicketEmbed(attached.value, definition)],
             components: buildTicketButtons(attached.value),
             allowedMentions: { parse: ['users'] },
         });
+
+        // The flow's message goes under the card, and before the ticket is announced as
+        // opened (below), so a Ticket Event flow's post lands under it. A send failing here
+        // leaves the half-made ticket a failed card send leaves too: a row and a channel,
+        // no state message, no announcement.
+        if (flowMessage) {
+            const posted = await channel.send(flowMessage.options);
+            await recordPostedMessage({ posted, buttons: config.buttons ?? [], context, ticketId: ticket.id });
+        }
 
         // Recorded so a caller with no interaction can re-render this embed, and
         // recording it is what announces the ticket as opened, now its embed exists. A

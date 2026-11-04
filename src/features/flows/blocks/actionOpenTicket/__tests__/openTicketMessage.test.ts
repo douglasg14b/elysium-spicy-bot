@@ -160,13 +160,13 @@ afterAll(async () => {
 });
 
 describe("Open Ticket's own message", () => {
-    it('posts it, buttons and all, before the ticket card, and records the card as the state message', async () => {
+    it('posts it, buttons and all, after the ticket card, and records the card as the state message', async () => {
         const scenario = scenarios.buttons;
         const result = await run(scenario, { message: EMBED, buttons: BUTTONS });
 
         expect(result.status).toBe('success');
         const ticket = await onlyTicket(scenario.guild);
-        const [flowMessage, card, ...rest] = botPosts(scenario.guild, ticket.channel);
+        const [card, flowMessage, ...rest] = botPosts(scenario.guild, ticket.channel);
         expect(rest).toEqual([]);
 
         expect(flowMessage?.embeds).toMatchObject([{ title: 'Aftercare' }]);
@@ -201,13 +201,13 @@ describe("Open Ticket's own message", () => {
         ]);
     });
 
-    it('posts a message without buttons above the card too, and records nothing', async () => {
+    it('posts a message without buttons under the card too, and records nothing', async () => {
         const scenario = scenarios.plain;
         const result = await run(scenario, { message: EMBED });
 
         expect(result.status).toBe('success');
         const ticket = await onlyTicket(scenario.guild);
-        const [flowMessage, card] = botPosts(scenario.guild, ticket.channel);
+        const [card, flowMessage] = botPosts(scenario.guild, ticket.channel);
         expect(flowMessage?.embeds).toMatchObject([{ title: 'Aftercare' }]);
         expect(flowMessage?.components).toEqual([]);
         expect(ticket.stateMessageId).toBe(card?.id);

@@ -559,7 +559,7 @@ describe("a press on a button under Open Ticket's post", () => {
         return place;
     }
 
-    /** Member Joins → Open Ticket with a message and one `all-good` button above the card. */
+    /** Member Joins → Open Ticket with a message and one `all-good` button under the card. */
     function openingGraph(): FlowGraph {
         return {
             version: FLOW_GRAPH_VERSION,
