@@ -34,7 +34,6 @@ process.env.DB_TYPE = 'sqlite';
 process.env.SQLITE_DB_PATH = ':memory:';
 process.env.DISCORD_APP_ID = '000000000000000000';
 process.env.DISCORD_BOT_TOKEN = 'preview-not-a-real-token';
-process.env.OPENAI_API_KEY = 'sk-preview-not-a-real-key';
 process.env.OPENROUTER_API_KEY = 'sk-preview-not-a-real-key';
 // Read by `web/vite.config.ts` for its port and its `/api` proxy target.
 process.env.WEB_PORT = values['api-port'];

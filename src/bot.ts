@@ -56,8 +56,7 @@ initProvisioning();
 // may be reachable before that finishes.
 await initFlows();
 
-// Answer mentions and replies with the chat agent. Replaces ai-reply's listener;
-// ai-reply's aiService stays for birthday announcements.
+// Answer mentions and replies with the chat agent.
 initChatAgent();
 
 // Start the in-process web dashboard (no-op unless web env vars are set).

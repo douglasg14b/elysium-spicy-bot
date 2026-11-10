@@ -19,7 +19,7 @@ const UNSAVED_FLOW_ID = 'unsaved-onboarding-flow';
  *
  * Usage (sqlite dev DB):
  *   DB_TYPE=sqlite SQLITE_DB_PATH=./data/bot.sqlite \
- *   DISCORD_APP_ID=x DISCORD_BOT_TOKEN=x OPENROUTER_API_KEY=x OPENAI_API_KEY=x \
+ *   DISCORD_APP_ID=x DISCORD_BOT_TOKEN=x OPENROUTER_API_KEY=x \
  *   pnpm tsx src/features/flows/templates/seedOnboardingFlow.ts <guildId> <memberRoleId> <channelId> [welcomeMessage]
  *
  * Then install its resources from the dashboard, which posts the panel.

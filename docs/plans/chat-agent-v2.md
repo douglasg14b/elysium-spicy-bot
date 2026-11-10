@@ -1,9 +1,9 @@
 # Chat agent V2 — a real agent with tools, sessions and judgement
 
-> **Status**: Step 1 built 2026-11-06 on `feat/web-ui-flow-engine` and reviewed (four reviewers; the High — tool traces replayed across askers — and the Mediums fixed). Unit tests and fixture runs against OpenRouter pass; not yet run in a real server. Unprompted ticket replies dropped 2026-11-06 (see Decisions). Step 2 (context channels) built 2026-11-06: table, repo, migration, `readContextChannel`, rules override, dashboard page + routes + SDK. Bot rules and server notes added to the same page 2026-11-07 (§6). Step 3 is not being done.
+> **Status**: Step 1 built 2026-11-06 on `feat/web-ui-flow-engine` and reviewed (four reviewers; the High — tool traces replayed across askers — and the Mediums fixed). Unit tests and fixture runs against OpenRouter pass; not yet run in a real server. Unprompted ticket replies dropped 2026-11-06 (see Decisions). Step 2 (context channels) built 2026-11-06: table, repo, migration, `readContextChannel`, rules override, dashboard page + routes + SDK. Bot rules and server notes added to the same page 2026-11-07 (§6). Step 3 done 2026-11-09: `ai-reply` deleted (§7).
 > **Owner**: Douglas
 > **Written**: 2026-11-06 on `feat/web-ui-flow-engine` @ `66452d0`
-> **Replaces**: the reply path of `src/features/ai-reply/` (see §7 for what of it stays)
+> **Replaces**: `src/features/ai-reply/`, deleted 2026-11-09 (§7)
 
 ## The problem
 
@@ -171,13 +171,13 @@ New table `chat_agent_config` (migration `2026-11-06-Create_Chat_Agent_Config`),
 - **Rate limit**: per user, ~4 direct triggers a minute; beyond that one in-character warning, then a 5-minute cooldown, silent.
 - **Output**: strip control characters, split at 2,000 on paragraph/sentence boundaries (max 2 messages), `allowedMentions` as above.
 - **Failure**: one in-character fallback line; logged with the step trace.
-- **V1**: `bot.ts` stops calling `initAIReply()` (done in step 1). `aiService.generateBirthdayAnnouncement` stays — `birthday-tracker` depends on it. The agents, guardrails and anti-abuse folders become dead and are deleted in a follow-up commit, after which `OPENAI_API_KEY` and `AI_MAX_CONTEXT_MESSAGES` are unused — the key can drop to optional, the other can go. AGENTS.md's stack row and the `ai-reply` layout paragraph get updated with that commit.
+- **V1**: deleted 2026-11-09. `bot.ts` stopped calling `initAIReply()` in step 1; then the whole of `src/features/ai-reply/` went. Birthday announcements, its one live use, moved to `birthday-tracker/birthdayAnnouncementWriter.ts` — the same persona and prompt, as one `generateText` on OpenRouter (`src/shared/openRouterModel.ts`, which the chat agent's `chatModel` uses too). `AI_MODEL`'s default moved to `openai/gpt-6-luna`: the old `openai/gpt-5.1-chat-latest` is gone from OpenRouter (every birthday without `AI_MODEL` set had been posting the fallback line), and Large 4 reasons past 4,000 tokens over the announcement's rules and writes nothing. Live check (`pnpm test:birthday-live`, 5 names × 2): 10/10 written, in voice. `OPENAI_API_KEY` and `AI_MAX_CONTEXT_MESSAGES` are gone from the bot, and so are the `openai` and `@openai/guardrails` packages; `@openai/agents` stays for `github-plan-cli/`, which reads its own `OPENAI_API_KEY`.
 
 ## 8. Build order
 
 1. **Core.** *(built)* Deps (`ai`, `@openrouter/ai-sdk-provider`), env (`CHAT_AGENT_MODEL`; reuse `OPENROUTER_API_KEY`/`OPENROUTER_BASE_URL`), gate, session store, run queue, agent, all tools except `readContextChannel`, send path, rate limit. Swap the listener in `bot.ts`. Rules come from `guild.rulesChannel`.
 2. **Context channels.** *(built)* Table, repo, migration `2026-11-06-Create_Chat_Agent_Config`, `readContextChannel`, rules override, dashboard page + routes + SDK.
-3. ~~Delete V1's reply path~~ — **not doing** (owner, 2026-11-06): v1's code stays.
+3. **Delete V1.** *(done 2026-11-09, owner's call, reversing 2026-11-06's "v1's code stays")* `src/features/ai-reply/` deleted; birthday announcements moved to `birthday-tracker/birthdayAnnouncementWriter.ts`.
 
 ## 9. Tests
 

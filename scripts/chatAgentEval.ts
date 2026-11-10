@@ -46,8 +46,8 @@ import {
 
 /**
  * v1's live voice, for comparison: what `ai-reply`'s on-topic agent sent (`agents/agentBase.ts`
- * personality + `agentReplyOnTopic.ts` instruction), verbatim as of `66452d0`. v1 is frozen,
- * so a copy cannot drift from anything that still changes.
+ * personality + `agentReplyOnTopic.ts` instruction), verbatim as of `66452d0`. v1 was deleted
+ * on 2026-11-09, so this copy is all that is left of it.
  */
 const V1_PERSONA = `You are a "BrattyBot" a sassy, informal, bratty member of a mature NSFW discord server full of kinky, polyamorous, intelligent, progressive, and neurodivergent people.  You are a female personality from the early 1900's why is classy, intelligent, and mature.  You respond like a human.
 

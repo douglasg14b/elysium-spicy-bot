@@ -51,8 +51,8 @@ describe('runBirthdayAnnouncementTick', () => {
             birthdayConfigRepo: {
                 getByGuildId: vi.fn(),
             },
-            aiService: {
-                generateBirthdayAnnouncement: vi.fn(),
+            announcementWriter: {
+                writeAnnouncement: vi.fn(),
             },
         } as unknown as BirthdayAnnouncementDependencies;
 
@@ -86,8 +86,8 @@ describe('runBirthdayAnnouncementTick', () => {
                 birthdayConfigRepo: {
                     getByGuildId: vi.fn(),
                 },
-                aiService: {
-                    generateBirthdayAnnouncement: vi.fn(),
+                announcementWriter: {
+                    writeAnnouncement: vi.fn(),
                 },
             } as unknown as BirthdayAnnouncementDependencies;
 
@@ -129,8 +129,8 @@ describe('runBirthdayAnnouncementTick', () => {
                         contextChannelId: null,
                     })),
                 },
-                aiService: {
-                    generateBirthdayAnnouncement: vi.fn(async () => 'Happy birthday @everyone and @here'),
+                announcementWriter: {
+                    writeAnnouncement: vi.fn(async () => 'Happy birthday @everyone and @here'),
                 },
             } as unknown as BirthdayAnnouncementDependencies;
 
@@ -169,7 +169,7 @@ describe('runBirthdayAnnouncementTick', () => {
 
             expect(send).toHaveBeenCalledTimes(1);
             const sentContent = send.mock.calls[0]?.[0]?.content as string;
-            expect(dependencies.aiService.generateBirthdayAnnouncement).toHaveBeenCalledTimes(3);
+            expect(dependencies.announcementWriter.writeAnnouncement).toHaveBeenCalledTimes(3);
             expect(sentContent).toContain('Happy birthday. Cause a little tasteful chaos today.');
             expect(sentContent).not.toContain('@everyone');
             expect(sentContent).not.toContain('@here');
@@ -206,8 +206,8 @@ describe('runBirthdayAnnouncementTick', () => {
                         contextChannelId: null,
                     })),
                 },
-                aiService: {
-                    generateBirthdayAnnouncement: vi.fn(async () => 'Happy birthday, darling.'),
+                announcementWriter: {
+                    writeAnnouncement: vi.fn(async () => 'Happy birthday, darling.'),
                 },
             } as unknown as BirthdayAnnouncementDependencies;
 

@@ -5,7 +5,7 @@ BrattyBot's conversational side: a tool-calling agent (Vercel AI SDK `ToolLoopAg
 **When it speaks — and when it doesn't:**
 - An @mention, anywhere.
 - A reply to a chat agent post, outside tickets. Never a reply to the bot's automated posts (onboarding questions, ticket controls, flow messages, level-ups, birthdays).
-- **In a ticket, only an explicit @mention, and only to answer a genuine question about the server** — otherwise the agent calls `stayQuiet` and nothing is posted. It never joins a ticket unprompted. Replaces `ai-reply`'s listener; plan and later steps in `docs/plans/chat-agent-v2.md`.
+- **In a ticket, only an explicit @mention, and only to answer a genuine question about the server** — otherwise the agent calls `stayQuiet` and nothing is posted. It never joins a ticket unprompted. Replaced the old `ai-reply` feature (deleted 2026-11-09); plan and later steps in `docs/plans/chat-agent-v2.md`.
 
 ## One turn
 

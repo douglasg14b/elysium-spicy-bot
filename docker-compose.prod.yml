@@ -15,7 +15,6 @@ services:
             SQLITE_DB_PATH: ${SQLITE_DB_PATH}
             PG_CONNECTION_STRING: ${PG_CONNECTION_STRING}
             OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-            OPENAI_API_KEY: ${OPENAI_API_KEY}
             # The dashboard starts only when all three below are set, and logs which are
             # missing otherwise. The URL is the hostname in infra/index.ts; the Discord app must
             # have https://brattybot.fettra.app/api/auth/callback registered as an OAuth redirect.
