@@ -42,6 +42,21 @@ export async function readChannelHistory(
         .map((message) => toHistoryMessage(message, botId, viewer.viewers, answering.id));
 }
 
+/** Who wrote `message`, as its readers see them: their server name, else their account's. */
+export function authorNameOf(message: Message): string {
+    return message.member?.displayName ?? message.author.displayName;
+}
+
+/** Who `message` replies to, by name, when it is a reply. */
+export function repliedToNameOf(message: Message): string | undefined {
+    return message.reference?.messageId ? message.mentions.repliedUser?.displayName : undefined;
+}
+
+/** `text` cut at `limit` characters, marked where it was cut. */
+export function cutText(text: string, limit: number): string {
+    return text.length > limit ? `${text.slice(0, limit)} …[cut]` : text;
+}
+
 export function toHistoryMessage(
     message: Message,
     botId: string,
@@ -50,12 +65,12 @@ export function toHistoryMessage(
 ): HistoryMessage {
     return {
         id: message.id,
-        authorName: message.member?.displayName ?? message.author.displayName,
+        authorName: authorNameOf(message),
         isFromThisBot: message.author.id === botId,
         isFromOtherBot: message.author.bot && message.author.id !== botId,
         content: describeContent(message, viewers),
         createdAt: message.createdAt,
-        replyToAuthorName: message.reference?.messageId ? message.mentions.repliedUser?.displayName : undefined,
+        replyToAuthorName: repliedToNameOf(message),
         isBeingAnswered: message.id === answeringId,
     };
 }
@@ -75,7 +90,7 @@ export function describeContent(message: Message, viewers: Viewers): string {
         .filter((summary) => summary.length > 0)
         .map((summary) => `[embed: ${summary}]`);
     const whole = [text, ...embeds, ...attachments].filter((part) => part.length > 0).join('\n');
-    return whole.length > MESSAGE_CONTENT_LIMIT ? `${whole.slice(0, MESSAGE_CONTENT_LIMIT)} …[cut]` : whole;
+    return cutText(whole, MESSAGE_CONTENT_LIMIT);
 }
 
 function resolveMentions(message: Message, viewers: Viewers): string {

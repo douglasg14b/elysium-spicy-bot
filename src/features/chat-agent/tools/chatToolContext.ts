@@ -1,4 +1,4 @@
-import type { Guild, GuildMember, GuildTextBasedChannel } from 'discord.js';
+import { ChannelType, type Guild, type GuildMember, type GuildTextBasedChannel } from 'discord.js';
 import { getTicketByChannel, type TicketEntity } from '../../tickets';
 import { guildSettingsRepo } from '../../../features-system/guild-settings';
 import { chatAgentConfigRepo } from '../data/chatAgentConfigRepo';
@@ -47,6 +47,9 @@ export async function buildChatToolContext(
     asker: GuildMember,
     ticket: TicketEntity | null
 ): Promise<ChatToolContext> {
+    // Who is in a private thread is known only once asked: discord.js caches its members from
+    // events alone, so after a restart a member of it would be no viewer at all.
+    if (channel.type === ChannelType.PrivateThread) await channel.members.fetch();
     const viewers = viewersOf(channel, asker);
     const [config, staffRoleIds] = await Promise.all([
         chatAgentConfigRepo.getConfig(channel.guild.id),

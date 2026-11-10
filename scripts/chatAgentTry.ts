@@ -62,7 +62,7 @@ function toolTrace(messages: readonly ModelMessage[]): string[] {
 }
 
 async function runOne(scenario: Scenario, modelId: string): Promise<string> {
-    const context = fixtureContext(scenario.inTicket);
+    const context = fixtureContext(scenario.inTicket ? 'ticket' : 'general');
     const started = Date.now();
     try {
         const turn = await runChatTurn({

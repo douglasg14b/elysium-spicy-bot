@@ -2,7 +2,7 @@ import { tool } from 'ai';
 import { z } from 'zod';
 import { ChannelType } from 'discord.js';
 import type { GuildBasedChannel } from 'discord.js';
-import { describeContent } from '../session/discordHistory';
+import { authorNameOf, describeContent } from '../session/discordHistory';
 import type { ChatToolContext } from './chatToolContext';
 import { findVisibleChannel, listVisibleChannels } from './visibleChannels';
 
@@ -103,7 +103,7 @@ export function searchRecentMessagesTool(context: ChatToolContext) {
             const messages = await context.channel.messages.fetch({ limit: SEARCH_SCAN_LIMIT });
             const matches = [...messages.values()]
                 .map((message) => ({
-                    author: message.member?.displayName ?? message.author.displayName,
+                    author: authorNameOf(message),
                     at: message.createdAt.toISOString(),
                     text: describeContent(message, context.viewers),
                 }))

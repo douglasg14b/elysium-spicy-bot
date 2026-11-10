@@ -18,7 +18,7 @@ const memberInput = z.object({
  * A member by id, `<@id>`, or name — exact display name or username first, then a
  * prefix — from the member cache, then Discord's member search. Undefined when nobody matches.
  */
-async function findMember(guild: Guild, query: string): Promise<GuildMember | undefined> {
+export async function findMember(guild: Guild, query: string): Promise<GuildMember | undefined> {
     const trimmed = query.trim().replace(/^@/, '');
     const id = /^<@!?(\d+)>$/.exec(trimmed)?.[1] ?? (/^\d{15,22}$/.test(trimmed) ? trimmed : undefined);
     if (id) return guild.members.cache.get(id) ?? (await fetchMemberOrNobody(guild, id));

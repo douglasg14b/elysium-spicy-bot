@@ -80,7 +80,7 @@ function fakeServer(): FakeServer & FakeServerApi {
     let nextId = 1;
     const allowEverything = { has: () => true };
     const me = { id: BOT_ID, displayName: 'BrattyBot' };
-    const guild = { id: 'guild', name: 'Elysium', members: { me, fetch: vi.fn(), cache: new Map() }, channels: { cache: new Map() }, roles: { cache: new Map() } };
+    const guild = { id: 'guild', name: 'Elysium', ownerId: 'owner', memberCount: 0, members: { me, fetch: vi.fn(), cache: new Map() }, channels: { cache: new Map() }, roles: { cache: new Map() } };
     const channel = {
         id: 'channel',
         name: 'general',
@@ -101,7 +101,8 @@ function fakeServer(): FakeServer & FakeServerApi {
     guild.channels.cache.set(channel.id, channel);
 
     const messageFrom = (userId: string, content: string, repliedTo: Message | null): Message => {
-        const member = { id: userId, displayName: userId, guild };
+        // Nobody here is staff: the staff-only tools stay shut and turns keep the short limits.
+        const member = { id: userId, displayName: userId, guild, permissions: { has: () => false }, roles: { cache: new Map() } };
         const message = {
             id: `incoming-${nextId++}`,
             content,
@@ -177,6 +178,32 @@ describe('handleChatMessage', () => {
         ]);
         // incoming-1 was the mention; its reply posted as posted-2.
         expect(deps.sessions.traceLookup('channel')('posted-2')).toMatchObject({ askerId: 'vex' });
+    });
+
+    it("remembers a staff-only tool's answer only as a note, so a follow-up has to ask it again", async () => {
+        const server = fakeServer();
+        let call = 0;
+        const model = new MockLanguageModelV4({
+            doGenerate: async () => {
+                call += 1;
+                return call === 1
+                    ? {
+                          content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'findTickets', input: '{"query":"57"}' }],
+                          finishReason: { unified: 'tool-calls', raw: undefined },
+                          usage: USAGE,
+                          warnings: [],
+                      }
+                    : { content: [{ type: 'text', text: 'Not yours to read.' }], finishReason: { unified: 'stop', raw: undefined }, usage: USAGE, warnings: [] };
+            },
+        });
+        const deps = dependencies(model);
+
+        await handleChatMessage(server.mentionFrom('vex', 'what was ticket 57?'), BOT_USER, deps);
+
+        const trace = deps.sessions.traceLookup('channel')('posted-2');
+        expect(JSON.stringify(trace)).toContain('Not kept between turns');
+        // What the tool answered this turn (Vex isn't staff) is not what the session keeps.
+        expect(JSON.stringify(trace)).not.toContain('pay grade');
     });
 
     it('turns the #channel the model names into a link before posting', async () => {
