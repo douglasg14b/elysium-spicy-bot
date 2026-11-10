@@ -16,15 +16,16 @@ export const SQLITE_DB_PATH = DB_TYPE === 'sqlite' ? getString('SQLITE_DB_PATH')
 export const PG_CONNECTION_STRING = DB_TYPE === 'postgres' ? getString('PG_CONNECTION_STRING') : undefined;
 
 // AI Configuration
-// OpenRouter is used for all reply generation (chat completions + the @openai/agents graph).
+// OpenRouter serves every model the bot calls (src/shared/openRouterModel.ts).
 export const OPENROUTER_API_KEY = getString('OPENROUTER_API_KEY');
 export const OPENROUTER_BASE_URL = getStringOptional('OPENROUTER_BASE_URL') || 'https://openrouter.ai/api/v1';
-// OpenAI is still used directly for @openai/guardrails, which relies on the OpenAI
-// Moderation API and is not proxied by OpenRouter.
-export const OPENAI_API_KEY = getString('OPENAI_API_KEY');
-// Model slug as understood by OpenRouter (provider-prefixed, e.g. "openai/gpt-5.1-chat-latest").
-export const AI_MODEL = getStringOptional('AI_MODEL') || 'openai/gpt-5.1-chat-latest';
-export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntPositive() || 50;
+// Birthday announcements' model, as an OpenRouter slug. Not the chat agent's: Large 4 reasons
+// past 4,000 tokens over the announcement's rules and writes nothing. (`openai/gpt-5.1-chat-latest`,
+// the old default, is gone from OpenRouter.)
+export const AI_MODEL = getStringOptional('AI_MODEL') || 'openai/gpt-6-luna';
+// The chat agent (src/features/chat-agent): an OpenRouter model slug for the tool-calling
+// agent that answers mentions and replies. Overridable per run to compare models.
+export const CHAT_AGENT_MODEL = getStringOptional('CHAT_AGENT_MODEL') || 'mistralai/mistral-large-4-0';
 // ---------------------------------------------------------------------------
 // Web dashboard (optional). See docs/adr/0001-web-server-in-bot-process.md.
 // The web server runs in-process with the bot. Every var here is OPTIONAL: if the

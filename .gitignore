@@ -181,3 +181,6 @@ nimbalyst-local/
 
 # Dashboard preview screenshots (`pnpm preview:shoot`). Regenerated on demand.
 web/e2e/preview/.shots/
+
+# Chat agent eval results (pnpm chat-agent:eval)
+.chat-agent-evals/

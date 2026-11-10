@@ -6,7 +6,7 @@ import { flashChatCommand, handleFlashChatCommand } from './features/flash-chat/
 import { initFlashChat } from './features/flash-chat';
 import { flagBotReady } from './healthcheck/botHearthbeat';
 import { deployTicketSystemCommand, handleDeployTicketSystem, initTicketsFeature } from './features/tickets';
-import { initAIReply } from './features/ai-reply';
+import { initChatAgent } from './features/chat-agent';
 import { initBirthdayFeature, startBirthdayAnnouncementScheduler, stopBirthdayAnnouncementScheduler } from './features/birthday-tracker';
 import { initActivityTracking } from './features-system/activity';
 import { initGuildAllowlist } from './features-system/guild-allowlist';
@@ -56,8 +56,8 @@ initProvisioning();
 // may be reachable before that finishes.
 await initFlows();
 
-// Initialize AI reply feature
-initAIReply();
+// Answer mentions and replies with the chat agent.
+initChatAgent();
 
 // Start the in-process web dashboard (no-op unless web env vars are set).
 startWebServer();

@@ -1582,6 +1582,100 @@
                 ],
                 "type": "object"
             },
+            "ChatAgentConfig": {
+                "properties": {
+                    "botRules": {
+                        "type": "string"
+                    },
+                    "contextChannels": {
+                        "items": {
+                            "$ref": "#/components/schemas/ChatAgentContextChannel"
+                        },
+                        "type": "array"
+                    },
+                    "serverNotes": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "contextChannels",
+                    "botRules",
+                    "serverNotes"
+                ],
+                "type": "object"
+            },
+            "ChatAgentConfigUpdate": {
+                "properties": {
+                    "botRules": {
+                        "maxLength": 2000,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the rules to 2,000 characters — I read them before every reply."
+                        }
+                    },
+                    "contextChannels": {
+                        "items": {
+                            "properties": {
+                                "channelId": {
+                                    "pattern": "^\\d{17,20}$",
+                                    "type": "string",
+                                    "x-messages": {
+                                        "pattern": "That's not a channel id. Pick one from the list."
+                                    }
+                                },
+                                "isRules": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "required": [
+                                "channelId",
+                                "isRules"
+                            ],
+                            "type": "object"
+                        },
+                        "maxItems": 10,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "10 context channels is my limit. Drop one."
+                        }
+                    },
+                    "serverNotes": {
+                        "maxLength": 2000,
+                        "type": "string",
+                        "x-messages": {
+                            "maxLength": "Keep the notes to 2,000 characters — I read them before every reply."
+                        }
+                    }
+                },
+                "required": [
+                    "contextChannels",
+                    "botRules",
+                    "serverNotes"
+                ],
+                "type": "object"
+            },
+            "ChatAgentContextChannel": {
+                "properties": {
+                    "channelId": {
+                        "type": "string"
+                    },
+                    "channelName": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "isRules": {
+                        "type": "boolean"
+                    }
+                },
+                "required": [
+                    "channelId",
+                    "isRules",
+                    "channelName"
+                ],
+                "type": "object"
+            },
             "CohortKey": {
                 "description": "A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.",
                 "enum": [
@@ -7091,6 +7185,216 @@
                     }
                 },
                 "summary": "The guild's text channels and categories",
+                "tags": [
+                    "guilds"
+                ]
+            }
+        },
+        "/api/guilds/{guildId}/config/chat-agent": {
+            "get": {
+                "operationId": "getChatAgentConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChatAgentConfig"
+                                }
+                            }
+                        },
+                        "description": "The chat agent config."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "The chat agent's context channels, rules and notes",
+                "tags": [
+                    "guilds"
+                ]
+            },
+            "put": {
+                "operationId": "updateChatAgentConfig",
+                "parameters": [
+                    {
+                        "in": "path",
+                        "name": "guildId",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ChatAgentConfigUpdate"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ChatAgentConfig"
+                                }
+                            }
+                        },
+                        "description": "The chat agent config as saved."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was refused, or the server id is missing."
+                    },
+                    "401": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "No valid session."
+                    },
+                    "403": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user may not manage this server."
+                    },
+                    "404": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The bot is not in this server."
+                    },
+                    "413": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was over the size limit."
+                    },
+                    "415": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The body was not sent as JSON."
+                    },
+                    "429": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "The signed-in user sent too many requests. Wait for `Retry-After` seconds."
+                    },
+                    "500": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        },
+                        "description": "Something failed that the route did not expect. The server logged it."
+                    }
+                },
+                "summary": "Replace the chat agent's context channels, rules and notes",
                 "tags": [
                     "guilds"
                 ]

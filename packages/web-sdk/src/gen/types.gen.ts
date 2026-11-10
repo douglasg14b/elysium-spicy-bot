@@ -413,6 +413,27 @@ export type ButtonListener = {
     nodeId: string;
 };
 
+export type ChatAgentConfig = {
+    botRules: string;
+    contextChannels: Array<ChatAgentContextChannel>;
+    serverNotes: string;
+};
+
+export type ChatAgentConfigUpdate = {
+    botRules: string;
+    contextChannels: Array<{
+        channelId: string;
+        isRules: boolean;
+    }>;
+    serverNotes: string;
+};
+
+export type ChatAgentContextChannel = {
+    channelId: string;
+    channelName: string | null;
+    isRules: boolean;
+};
+
 /**
  * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
  */
@@ -2049,6 +2070,108 @@ export type GetGuildChannelsResponses = {
 };
 
 export type GetGuildChannelsResponse = GetGuildChannelsResponses[keyof GetGuildChannelsResponses];
+
+export type GetChatAgentConfigData = {
+    body?: never;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/chat-agent';
+};
+
+export type GetChatAgentConfigErrors = {
+    /**
+     * The server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type GetChatAgentConfigError = GetChatAgentConfigErrors[keyof GetChatAgentConfigErrors];
+
+export type GetChatAgentConfigResponses = {
+    /**
+     * The chat agent config.
+     */
+    200: ChatAgentConfig;
+};
+
+export type GetChatAgentConfigResponse = GetChatAgentConfigResponses[keyof GetChatAgentConfigResponses];
+
+export type UpdateChatAgentConfigData = {
+    body: ChatAgentConfigUpdate;
+    path: {
+        guildId: string;
+    };
+    query?: never;
+    url: '/api/guilds/{guildId}/config/chat-agent';
+};
+
+export type UpdateChatAgentConfigErrors = {
+    /**
+     * The body was refused, or the server id is missing.
+     */
+    400: ErrorBody;
+    /**
+     * No valid session.
+     */
+    401: ErrorBody;
+    /**
+     * The signed-in user may not manage this server.
+     */
+    403: ErrorBody;
+    /**
+     * The bot is not in this server.
+     */
+    404: ErrorBody;
+    /**
+     * The body was over the size limit.
+     */
+    413: ErrorBody;
+    /**
+     * The body was not sent as JSON.
+     */
+    415: ErrorBody;
+    /**
+     * The signed-in user sent too many requests. Wait for `Retry-After` seconds.
+     */
+    429: ErrorBody;
+    /**
+     * Something failed that the route did not expect. The server logged it.
+     */
+    500: ErrorBody;
+};
+
+export type UpdateChatAgentConfigError = UpdateChatAgentConfigErrors[keyof UpdateChatAgentConfigErrors];
+
+export type UpdateChatAgentConfigResponses = {
+    /**
+     * The chat agent config as saved.
+     */
+    200: ChatAgentConfig;
+};
+
+export type UpdateChatAgentConfigResponse = UpdateChatAgentConfigResponses[keyof UpdateChatAgentConfigResponses];
 
 export type GetTicketsConfigData = {
     body?: never;

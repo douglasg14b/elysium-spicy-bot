@@ -1,6 +1,6 @@
 import { Client, Guild, GuildBasedChannel, Message, PermissionsBitField } from 'discord.js';
 import { BIRTHDAY_TIMEZONE } from '../../environment';
-import { aiService, AIService } from '../ai-reply/aiService';
+import { birthdayAnnouncementWriter, type BirthdayAnnouncementWriter } from './birthdayAnnouncementWriter';
 import { BirthdayConfigRepo, birthdayConfigRepo } from './data/birthdayConfigRepo';
 import { BirthdayRepository, birthdayRepository, isWithinBirthdayAnnouncementWindow } from './data/birthdayRepo';
 import { getLocalDateKey } from './birthdayCelebration';
@@ -16,13 +16,13 @@ const CONTEXT_MESSAGES_TO_FEED = 3;
 export type BirthdayAnnouncementDependencies = {
     birthdayRepository: BirthdayRepository;
     birthdayConfigRepo: BirthdayConfigRepo;
-    aiService: AIService;
+    announcementWriter: BirthdayAnnouncementWriter;
 };
 
 const defaultDependencies: BirthdayAnnouncementDependencies = {
     birthdayRepository,
     birthdayConfigRepo,
-    aiService,
+    announcementWriter: birthdayAnnouncementWriter,
 };
 
 let birthdayAnnouncementInterval: ReturnType<typeof setInterval> | null = null;
@@ -142,7 +142,7 @@ export async function runBirthdayAnnouncementTick(
             let generatedAnnouncement = '';
             try {
                 generatedAnnouncement = await generateSafeBirthdayAnnouncement({
-                    aiService: dependencies.aiService,
+                    announcementWriter: dependencies.announcementWriter,
                     displayName,
                     username,
                     contextualMessages: contextMessages,
@@ -318,7 +318,7 @@ export function sanitizeAnnouncementForSend(generatedText: string): string {
 }
 
 async function generateSafeBirthdayAnnouncement(input: {
-    aiService: AIService;
+    announcementWriter: BirthdayAnnouncementWriter;
     displayName: string;
     username: string;
     contextualMessages: string[];
@@ -326,7 +326,7 @@ async function generateSafeBirthdayAnnouncement(input: {
     let retryFeedback: string | undefined;
 
     for (let attemptIndex = 0; attemptIndex < MAX_BIRTHDAY_GENERATION_ATTEMPTS; attemptIndex += 1) {
-        const generatedText = await input.aiService.generateBirthdayAnnouncement({
+        const generatedText = await input.announcementWriter.writeAnnouncement({
             displayName: input.displayName,
             username: input.username,
             contextualMessages: input.contextualMessages,

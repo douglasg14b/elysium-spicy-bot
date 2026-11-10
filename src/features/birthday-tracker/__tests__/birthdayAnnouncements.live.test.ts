@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { aiService } from '../../ai-reply/aiService';
+import { birthdayAnnouncementWriter } from '../birthdayAnnouncementWriter';
 
 const ENABLE_FLAG = 'RUN_OPENAI_BIRTHDAY_TESTS';
 const SHOULD_RUN_LIVE_TESTS = isTruthy(process.env[ENABLE_FLAG]) && !isTruthy(process.env.CI);
@@ -26,7 +26,7 @@ const LIVE_BIRTHDAY_CASES: readonly BirthdayPromptCase[] = [
     { label: 'minimal style', displayName: 'J', username: 'j_online' },
 ];
 
-describeLive('birthday announcement live output (OpenAI)', () => {
+describeLive('birthday announcement live output (OpenRouter)', () => {
     it(
         'prints generated birthday announcement samples for manual review',
         async () => {
@@ -38,7 +38,7 @@ describeLive('birthday announcement live output (OpenAI)', () => {
                 console.log(`[birthday-live] Input: displayName="${birthdayCase.displayName}", username="${birthdayCase.username}"`);
 
                 for (let runIndex = 1; runIndex <= repeatCount; runIndex += 1) {
-                    const generatedMessage = await aiService.generateBirthdayAnnouncement({
+                    const generatedMessage = await birthdayAnnouncementWriter.writeAnnouncement({
                         displayName: birthdayCase.displayName,
                         username: birthdayCase.username,
                     });

@@ -35,6 +35,7 @@ import { ActivityEventsTable } from '../activity/data/activityEventsSchema';
 import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorderSessionsSchema';
 import { MemberNamesTable } from '../member-names/data/memberNamesSchema';
 import { MemberAvatarsTable } from '../member-names/data/memberAvatarsSchema';
+import { ChatAgentConfigTable } from '../../features/chat-agent/data/chatAgentConfigSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -64,6 +65,7 @@ export interface Database {
     activity_recorder_sessions: ActivityRecorderSessionsTable;
     member_names: MemberNamesTable;
     member_avatars: MemberAvatarsTable;
+    chat_agent_config: ChatAgentConfigTable;
 }
 
 function getDbDialect() {
@@ -135,6 +137,7 @@ function getDatabaseClient() {
                 // No boolean or JSON columns, so absent from both sqlite-only plugins below.
                 // `bytes` is a Buffer on both drivers, as `guild_uploads.bytes` is.
                 member_avatars: ['fetchedAt'],
+                chat_agent_config: ['createdAt', 'updatedAt'],
         }),
     ];
 
@@ -168,6 +171,8 @@ function getDatabaseClient() {
                     // on one dialect only.
                     guild_settings: ['staffRoleIds'],
                     member_names: ['nicknames'],
+                    // No boolean columns, so absent from SqliteBindingPlugin above.
+                    chat_agent_config: ['config'],
                 }),
                 ...plugins,
             ],
