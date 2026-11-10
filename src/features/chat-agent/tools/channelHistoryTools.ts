@@ -1,12 +1,11 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import { DiscordAPIError, DiscordjsError, DiscordjsErrorCodes, RESTJSONErrorCodes } from 'discord.js';
-import type { Collection, Guild, GuildBasedChannel, GuildTextBasedChannel, Message } from 'discord.js';
+import type { Collection, GuildBasedChannel, Message } from 'discord.js';
 import { authorNameOf, cutText, describeContent, repliedToNameOf } from '../session/discordHistory';
-import { channelIdFromReference, parseMessageLink } from './channelReferences';
+import { findAdmittedChannel, isNoSuchChannel, parseMessageLink } from './channelReferences';
 import type { ChatToolContext } from './chatToolContext';
 import { staffOnlyRefusal } from './staffAccess';
-import { matchChannel, readableTextChannel } from './visibleChannels';
+import { readableTextChannel } from './visibleChannels';
 
 /** Messages a page holds. */
 export const HISTORY_PAGE_SIZE = 50;
@@ -19,42 +18,6 @@ export const HISTORY_CHARACTER_BUDGET = 120_000;
 
 /** A paged message's text is cut shorter than a history message's, so ten pages stay readable. */
 const PAGED_MESSAGE_LIMIT = 600;
-
-/** What Discord answers about a channel the bot may not read, or one that is not this server's: none, to the model. */
-const NO_SUCH_CHANNEL_CODES: ReadonlySet<number | string> = new Set([
-    RESTJSONErrorCodes.UnknownChannel,
-    RESTJSONErrorCodes.MissingAccess,
-    RESTJSONErrorCodes.MissingPermissions,
-]);
-
-function isNoSuchChannel(error: unknown): boolean {
-    if (error instanceof DiscordAPIError) return NO_SUCH_CHANNEL_CODES.has(error.code);
-    return error instanceof DiscordjsError && error.code === DiscordjsErrorCodes.GuildChannelUnowned;
-}
-
-/** The channel with `id` — a thread nobody has opened since the bot started included — or undefined when there is none the bot may read. */
-async function channelById(guild: Guild, id: string): Promise<GuildBasedChannel | undefined> {
-    const cached = guild.channels.cache.get(id);
-    if (cached) return cached;
-    try {
-        return (await guild.channels.fetch(id)) ?? undefined;
-    } catch (error) {
-        if (isNoSuchChannel(error)) return undefined;
-        throw error;
-    }
-}
-
-/** The channel `query` names — a link or an id by id, a name among the readable channels the cache holds — if every reader can read it. */
-async function findReadableChannel(context: ChatToolContext, query: string): Promise<GuildTextBasedChannel | undefined> {
-    const id = channelIdFromReference(query) ?? (/^\d{15,22}$/.test(query.trim()) ? query.trim() : null);
-    const candidate = id
-        ? await channelById(context.guild, id)
-        : matchChannel(
-              [...context.guild.channels.cache.values()].filter((channel) => readableTextChannel(context.viewers, channel)),
-              query
-          );
-    return readableTextChannel(context.viewers, candidate);
-}
 
 export type PagedMessage = {
     readonly author: string;
@@ -81,7 +44,7 @@ function toPagedMessage(message: Message, context: ChatToolContext, linkedId: st
 }
 
 /** A channel as the model writes it: a #name, or — a thread, which cannot be linked — its name and the #channel it is in. */
-function describeWhere(channel: GuildTextBasedChannel): { readonly channel: string; readonly thread?: string } {
+export function describeWhere(channel: GuildBasedChannel): { readonly channel: string; readonly thread?: string } {
     if (channel.isThread() && channel.parent) return { channel: `#${channel.parent.name}`, thread: channel.name };
     return { channel: `#${channel.name}` };
 }
@@ -133,7 +96,7 @@ export function readChannelMessagesTool(context: ChatToolContext) {
             if (link && link.guildId !== context.guild.id) return { found: false as const, note: 'That link is to another server.' };
 
             pagesStarted += 1;
-            const channel = await findReadableChannel(context, query);
+            const channel = await findAdmittedChannel(context, query, (candidate) => readableTextChannel(context.viewers, candidate));
             if (!channel) return { found: false as const, note: `No channel matching "${query}" that everyone here can read.` };
 
             const linkedId = before ? null : (link?.messageId ?? null);

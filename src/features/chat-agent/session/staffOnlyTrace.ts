@@ -1,7 +1,7 @@
 import type { ModelMessage, ToolResultPart } from 'ai';
 
 /** The tools that answer only where every reader is staff (`staffOnlyRefusal`). */
-export const STAFF_ONLY_TOOLS = ['getBotFeature', 'findTickets', 'readChannelMessages'] as const;
+export const STAFF_ONLY_TOOLS = ['getBotFeature', 'findTickets', 'readChannelMessages', 'getChannelAccess'] as const;
 
 const STAFF_ONLY = new Set<string>(STAFF_ONLY_TOOLS);
 

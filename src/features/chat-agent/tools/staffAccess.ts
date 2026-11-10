@@ -13,12 +13,12 @@ export function isStaffMember(member: GuildMember, staffRoleIds: readonly string
     return staffRoleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
-/** Whether the staff-only tools (bot features, tickets, channel history) answer this turn, and why not when not. */
+/** Whether the staff-only tools (bot features, tickets, channel history, channel access) answer this turn, and why not when not. */
 export type StaffHelpAccess = 'allowed' | 'askerNotStaff' | 'readersNotStaff' | 'readersUnknown';
 
 /**
  * The asker must be staff, and so must everyone else who can read the answer — the bot's
- * features, this server's setup, its tickets and other channels' messages are told only
+ * features, this server's setup, its tickets, other channels' messages and who can see them are told only
  * where every reader is staff.
  *
  * The readers are the guild's member cache (`viewersOf`), which is whole only once the
