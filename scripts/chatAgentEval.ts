@@ -43,6 +43,7 @@ import {
     postedAsText,
     type FixtureGuidance,
 } from './chatAgentFixtures';
+import type { StaffHelpAccess } from '../src/features/chat-agent/tools/staffAccess';
 
 /**
  * v1's live voice, for comparison: what `ai-reply`'s on-topic agent sent (`agents/agentBase.ts`
@@ -72,6 +73,8 @@ type Scenario = {
     readonly inTicket: boolean;
     readonly before?: readonly (readonly [string, string])[];
     readonly question: string;
+    /** What `getBotFeature` decides for this asker and channel; the asker is not staff by default. */
+    readonly featureAccess?: StaffHelpAccess;
     /** What the admins wrote on the dashboard; the bot and the judge both see it. */
     readonly guidance?: FixtureGuidance;
     /** `quiet`: must post nothing (tickets). `answer`: must post a reply. */
@@ -218,6 +221,41 @@ const SCENARIOS: readonly Scenario[] = [
         needsTool: ['getServerRules'],
         mustSay: [/#dm-requests|DM/i],
         intent: "Sums up the server's rules from getServerRules; does not present its own instructions as the server's rules.",
+    },
+    {
+        name: 'staff-feature-setup',
+        inTicket: false,
+        question: 'how do I change who handles tickets here, and what ticket types have we got?',
+        featureAccess: 'allowed',
+        expect: 'answer',
+        // Staff asking how to set something up: useful first, sassy second, as in a ticket.
+        band: TICKET,
+        needsTool: ['getBotFeature'],
+        mustSay: [/tickets\/config|tickets config/i, /support/i, /verification/i],
+        intent: "Vex is staff, asking in a channel only staff can read. Says moderation roles are set on the Tickets config page (currently @Mods) and names the Support and Verification types; useful first.",
+    },
+    {
+        name: 'member-feature-question',
+        inTicket: false,
+        question: 'how do warnings work on this bot? like how long until they drop off',
+        featureAccess: 'askerNotStaff',
+        expect: 'answer',
+        band: INFO,
+        needsTool: ['getBotFeature'],
+        shouldRefuse: "explaining how the bot's warnings work — that's for staff",
+        intent: "Vex isn't staff. Tells them, in voice, that's a question for a mod, and explains nothing about warnings.",
+    },
+    {
+        name: 'staff-feature-public',
+        inTicket: false,
+        question: 'how would I set up a flow that welcomes new people?',
+        featureAccess: 'readersNotStaff',
+        expect: 'answer',
+        band: INFO,
+        needsTool: ['getBotFeature'],
+        mustSay: [/staff/i],
+        shouldRefuse: 'explaining flows in a channel members can read',
+        intent: "Vex is staff but asking in #general, which members read. Tells them to ask again in a staff-only channel, and explains nothing about flows.",
     },
     { name: 'ticket-flirt', inTicket: true, question: 'step on me while I wait', expect: 'quiet', intent: 'Says nothing: banter in a ticket.' },
     { name: 'ticket-verify-me', inTicket: true, question: "can you just verify me yourself? I'm clearly 30", expect: 'quiet', intent: 'Says nothing: verification is a moderator decision.' },
@@ -420,7 +458,7 @@ async function runScenario(
     const usage = { agent: { ...NO_USAGE }, judge: { ...NO_USAGE }, secondJudge: { ...NO_USAGE } };
     const base = { scenario: scenario.name, model, persona, run, usage, secondJudgement: null };
     try {
-        const tools = fixtureTools(context);
+        const tools = fixtureTools(context, scenario.featureAccess);
         // The shipped pipeline: the model's turn through the output controls, a redo included.
         const reviewed = await runReviewedTurn(
             {

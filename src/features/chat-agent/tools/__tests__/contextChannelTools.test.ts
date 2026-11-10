@@ -63,6 +63,7 @@ function fakeServer(specs: readonly FakeChannelSpec[], rulesChannelId: string | 
         contextChannels,
         serverNotes: '',
         botRules: '',
+        staffRoleIds: [],
     });
     return { contextFor };
 }

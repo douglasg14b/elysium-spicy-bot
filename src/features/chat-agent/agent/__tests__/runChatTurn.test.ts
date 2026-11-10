@@ -35,6 +35,7 @@ function ticketChannelContext(): ChatToolContext {
         contextChannels: [],
         serverNotes: '',
         botRules: '',
+        staffRoleIds: [],
     };
 }
 
@@ -107,6 +108,7 @@ describe('runChatTurn', () => {
         expect(system?.content).toContain('Channel: #s42-support-vex');
         expect(call.tools?.map((tool) => tool.name).sort()).toEqual(
             [
+                'getBotFeature',
                 'getChannelInfo',
                 'getMemberInfo',
                 'getServerInfo',

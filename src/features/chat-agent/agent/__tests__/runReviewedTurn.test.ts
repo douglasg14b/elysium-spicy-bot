@@ -24,6 +24,7 @@ const CONTEXT: ChatToolContext = {
     contextChannels: [],
     serverNotes: '',
     botRules: '',
+    staffRoleIds: [],
 };
 const REVIEW: ReviewContext = { viewers: [vex], inTicket: false, botName: 'BrattyBot', toolNames: [] };
 

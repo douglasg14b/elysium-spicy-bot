@@ -20,6 +20,7 @@ import { chatModel } from '../src/features/chat-agent';
 import { runReviewedTurn } from '../src/features/chat-agent/agent/runReviewedTurn';
 import { historyToModelMessages, type HistoryMessage } from '../src/features/chat-agent/session/historyToModelMessages';
 import { HISTORY_MESSAGE_LIMIT, toHistoryMessage } from '../src/features/chat-agent/session/discordHistory';
+import { ensureBlocksDiscovered } from '../src/features/flows/blocks/registry';
 import { buildChatTools } from '../src/features/chat-agent/tools/buildChatTools';
 import { buildChatToolContext, findLiveTicket } from '../src/features/chat-agent/tools/chatToolContext';
 
@@ -94,6 +95,8 @@ async function main(): Promise<void> {
     console.log(`Q: ${question}\n`);
 
     const started = Date.now();
+    // getBotFeature names a flow's triggers from the block registry, which the bot loads in initFlows.
+    await ensureBlocksDiscovered();
     const tools = buildChatTools(context);
     const botName = channel.guild.members.me?.displayName ?? botUser.displayName;
     const reviewed = await runReviewedTurn(

@@ -1,3 +1,4 @@
+import { getBotFeatureTool } from './botFeatureTools';
 import type { ChatToolContext } from './chatToolContext';
 import { getChannelInfoTool, listChannelsTool, searchRecentMessagesTool } from './channelTools';
 import { getMemberInfoTool, getUserLevelTool } from './memberTools';
@@ -17,6 +18,7 @@ export function buildChatTools(context: ChatToolContext) {
         getMemberInfo: getMemberInfoTool(context),
         getUserLevel: getUserLevelTool(context),
         getTicketInfo: getTicketInfoTool(context),
+        getBotFeature: getBotFeatureTool(context),
         // Offered only in tickets (`runChatTurn`'s `activeTools`): elsewhere a mention always gets an answer.
         stayQuiet: stayQuietTool(),
     };

@@ -83,7 +83,9 @@ describe('reviewReply — turned back', () => {
         expect(reviewReply('Oh, *darling*, I’m a bot.', SOCIAL, 'first')).toEqual({ verdict: 'redo', problems: [{ kind: 'petName', word: 'darling' }] });
         expect(reviewReply('Been here since day one, sweetheart.', SOCIAL, 'first')).toMatchObject({ verdict: 'redo' });
         expect(reviewReply('Honey, no.', SOCIAL, 'first')).toMatchObject({ verdict: 'redo' });
+        expect(reviewReply("That's above your pay grade, love — ask a mod.", SOCIAL, 'first')).toEqual({ verdict: 'redo', problems: [{ kind: 'petName', word: 'love' }] });
         expect(reviewReply('Kitten play lives in its own channel; honey badgers do not.', SOCIAL, 'first')).toMatchObject({ verdict: 'post' });
+        expect(reviewReply("I'd love to, but no. No love lost, though — made with love.", SOCIAL, 'first')).toMatchObject({ verdict: 'post' });
         expect(reviewReply('Oh, darling, no.', SOCIAL, 'last')).toEqual({ verdict: 'fallback', problems: [{ kind: 'petName', word: 'darling' }] });
     });
 

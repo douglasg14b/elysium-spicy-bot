@@ -11,7 +11,10 @@ import { ChatSessionStore } from '../session/chatSessionStore';
 const tickets = vi.hoisted(() => ({ current: null as TicketEntity | null }));
 vi.mock('../../tickets', () => ({ getTicketByChannel: async () => tickets.current }));
 vi.mock('../../../features-system/guild-settings', () => ({
-    guildSettingsRepo: { getTimeZone: async () => ({ chosen: null, effective: 'America/Los_Angeles' }) },
+    guildSettingsRepo: {
+        getTimeZone: async () => ({ chosen: null, effective: 'America/Los_Angeles' }),
+        getStaffRoleIds: async () => [],
+    },
     DEFAULT_GUILD_TIME_ZONE: 'America/Los_Angeles',
 }));
 const NOTHING_CONFIGURED = { contextChannels: [], serverNotes: '', botRules: '' };

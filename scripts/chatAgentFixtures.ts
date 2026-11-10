@@ -9,7 +9,11 @@ import type { Guild, GuildBasedChannel, GuildMember, GuildTextBasedChannel } fro
 import { historyToModelMessages, type HistoryMessage } from '../src/features/chat-agent/session/historyToModelMessages';
 import { buildChatTools, type ChatTools } from '../src/features/chat-agent/tools/buildChatTools';
 import type { ChatAgentConfig } from '../src/features/chat-agent/data/chatAgentConfigSchema';
+import { BOT_FEATURE_REFUSALS, describeBotFeature } from '../src/features/chat-agent/tools/botFeatureTools';
+import type { BotFeature } from '../src/features/chat-agent/tools/botFeatures';
 import type { ChatToolContext } from '../src/features/chat-agent/tools/chatToolContext';
+import type { FeatureSetup } from '../src/features/chat-agent/tools/featureSetup';
+import type { StaffHelpAccess } from '../src/features/chat-agent/tools/staffAccess';
 import { matchChannel } from '../src/features/chat-agent/tools/visibleChannels';
 import type { TicketEntity } from '../src/features/tickets';
 
@@ -69,8 +73,14 @@ export function brokenReferences(reply: string): string[] {
 }
 
 /** What each tool answers on the made-up server. Shapes match what the real tools return. */
-function cannedResult(toolName: keyof ChatTools, input: unknown, inTicket: boolean): unknown {
+function cannedResult(toolName: keyof ChatTools, input: unknown, inTicket: boolean, featureAccess: StaffHelpAccess): unknown {
     switch (toolName) {
+        case 'getBotFeature': {
+            const feature = (input as { feature: BotFeature }).feature;
+            if (featureAccess !== 'allowed') return { answered: false, ...BOT_FEATURE_REFUSALS[featureAccess] };
+            // As production runs it: with the dashboard on.
+            return { answered: true, ...describeBotFeature(feature, 'https://brattybot.fettra.app'), setupHere: FIXTURE_FEATURE_SETUP[feature] ?? { setUp: false } };
+        }
         case 'getServerRules':
             return { found: true, sources: [{ channel: '#rules', rules: FIXTURE_FACTS.rules }] };
         case 'readContextChannel':
@@ -220,17 +230,39 @@ export function fixtureContext(inTicket: boolean, guidance: FixtureGuidance = {}
         contextChannels: [],
         serverNotes: guidance.serverNotes ?? '',
         botRules: guidance.botRules ?? '',
+        staffRoleIds: [],
         ticket: inTicket ? ({ ticketNumber: 42 } as unknown as TicketEntity) : null,
     };
 }
 
-/** The real tools — same names, descriptions and schemas — answering from {@link cannedResult}. */
-export function fixtureTools(context: ChatToolContext): ChatTools {
+/** How the made-up server has a few features set up, for a staff question about them. */
+/** The setup the made-up server has, for the features a scenario asks about; the rest answer as never set up. */
+const FIXTURE_FEATURE_SETUP: { readonly [Feature in BotFeature]?: FeatureSetup<Feature> } = {
+    tickets: {
+        setUp: true,
+        panelPostedIn: '#get-verified',
+        categories: { 'open tickets': 'Tickets', 'claimed tickets': 'Claimed', 'closed tickets': 'not set' },
+        moderationRoles: ['@Mods'],
+        ticketTypes: [
+            { name: 'Support', claimedOnOpen: true },
+            { name: 'Verification', claimedOnOpen: false },
+        ],
+    },
+    warnings: { modLogChannel: 'not set' },
+    flows: { flows: [{ name: 'Welcome', on: true, startsOn: ['Member Joins'], journey: 'Onboarding' }], journeys: ['Onboarding'] },
+};
+
+/**
+ * The real tools — same names, descriptions and schemas — answering from {@link cannedResult}.
+ * `featureAccess` is what `getBotFeature` decides for this asker and channel: the made-up
+ * asker is not staff unless a scenario says so.
+ */
+export function fixtureTools(context: ChatToolContext, featureAccess: StaffHelpAccess = 'askerNotStaff'): ChatTools {
     const real = buildChatTools(context);
     const inTicket = !!context.ticket;
     const names = Object.keys(real) as (keyof ChatTools)[];
     return Object.fromEntries(
-        names.map((name) => [name, { ...real[name], execute: async (input: unknown) => cannedResult(name, input, inTicket) }])
+        names.map((name) => [name, { ...real[name], execute: async (input: unknown) => cannedResult(name, input, inTicket, featureAccess) }])
     ) as unknown as ChatTools;
 }
 

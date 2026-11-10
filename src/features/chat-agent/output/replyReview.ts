@@ -155,7 +155,8 @@ function isToolCallAsText(text: string, toolNames: readonly string[]): boolean {
 /**
  * A pet name used to address someone: at the start, after punctuation, or after a word like
  * "oh", and followed by punctuation or the end — "Oh, *darling*, I'm…", "since day one,
- * sweetheart." — not "honey badger" or "kitten play", which are about something.
+ * sweetheart.", "above your pay grade, love —" — not "honey badger", "kitten play" or "I'd love to",
+ * which are about something.
  */
 const PET_NAME =
-    /(?:^|[,;:!?.…—–-]\s*|\b(?:oh|hey|look|listen|ok|okay|sure|fine|no|yes|nope|sorry|thanks)\s+)[*_]*(darling|honey|sweetheart|sweetie|kitten|babe|sugar)[*_]*(?=\s*(?:[,;:!?.…—–-]|$))/i;
+    /(?:^|[,;:!?.…—–-]\s*|\b(?:oh|hey|look|listen|ok|okay|sure|fine|no|yes|nope|sorry|thanks)\s+)[*_]*(darling|honey|sweetheart|sweetie|kitten|babe|sugar|love)[*_]*(?=\s*(?:[,;:!?.…—–-]|$))/i;

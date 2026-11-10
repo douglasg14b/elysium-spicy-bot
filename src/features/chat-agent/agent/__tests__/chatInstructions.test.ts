@@ -13,6 +13,7 @@ const CONTEXT = {
     contextChannels: [],
     serverNotes: '',
     botRules: '',
+    staffRoleIds: [],
     ticket: null,
 } satisfies ChatToolContext;
 
