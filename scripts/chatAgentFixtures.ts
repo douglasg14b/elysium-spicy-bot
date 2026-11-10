@@ -91,6 +91,9 @@ function cannedResult(toolName: keyof ChatTools, input: unknown, inTicket: boole
             const page = pages.find((candidate) => candidate.before === before) ?? pages[pages.length - 1];
             return { found: true, channel: page.channel, messages: page.messages, continueBefore: page.continueBefore, pagesLeft: 8 };
         }
+        case 'getChannelAccess':
+            if (staffAccess !== 'allowed') return { found: false, ...STAFF_ONLY_REFUSALS[staffAccess] };
+            return FIXTURE_TICKET_ACCESS;
         case 'getBotFeature': {
             const feature = (input as { feature: BotFeature }).feature;
             if (staffAccess !== 'allowed') return { answered: false, ...STAFF_ONLY_REFUSALS[staffAccess] };
@@ -326,6 +329,22 @@ const FIXTURE_TICKET_PAGES: readonly FixturePage[] = [
         continueBefore: null,
     },
 ];
+
+/** Who can see ticket 57's channel, whatever is asked about: the moderators, and River, let in by name. */
+const FIXTURE_TICKET_ACCESS = {
+    found: true,
+    channel: '#ticket-0057-river',
+    openToEveryone: false,
+    roles: [{ role: '@Owner', staff: true, administrator: true }, { role: '@Moderator', staff: true }],
+    people: 4,
+    staff: 3,
+    members: [
+        { name: '@Kat', staff: true },
+        { name: '@Sable', staff: true },
+        { name: '@Vex', staff: true },
+        { name: '@River', addedDirectly: true },
+    ],
+};
 
 /** A spat in #general around a linked message, whose cause is a page further back. */
 const FIXTURE_LINK_PAGES: readonly FixturePage[] = [

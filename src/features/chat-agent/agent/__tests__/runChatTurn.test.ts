@@ -110,6 +110,7 @@ describe('runChatTurn', () => {
             [
                 'findTickets',
                 'getBotFeature',
+                'getChannelAccess',
                 'getChannelInfo',
                 'getMemberInfo',
                 'getServerInfo',

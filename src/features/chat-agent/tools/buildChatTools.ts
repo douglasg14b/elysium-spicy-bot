@@ -1,5 +1,6 @@
 import { getBotFeatureTool } from './botFeatureTools';
 import type { ChatToolContext } from './chatToolContext';
+import { getChannelAccessTool } from './channelAccessTools';
 import { readChannelMessagesTool } from './channelHistoryTools';
 import { getChannelInfoTool, listChannelsTool, searchRecentMessagesTool } from './channelTools';
 import { getMemberInfoTool, getUserLevelTool } from './memberTools';
@@ -23,6 +24,7 @@ export function buildChatTools(context: ChatToolContext) {
         // Staff only, where every reader is staff; each says so itself.
         findTickets: findTicketsTool(context),
         readChannelMessages: readChannelMessagesTool(context),
+        getChannelAccess: getChannelAccessTool(context),
         // Offered only in tickets (`runChatTurn`'s `activeTools`): elsewhere a mention always gets an answer.
         stayQuiet: stayQuietTool(),
     };
