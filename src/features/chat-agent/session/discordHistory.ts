@@ -52,9 +52,11 @@ export function repliedToNameOf(message: Message): string | undefined {
     return message.reference?.messageId ? message.mentions.repliedUser?.displayName : undefined;
 }
 
-/** `text` cut at `limit` characters, marked where it was cut. */
+/** `text` cut at `limit` characters, marked where it was cut — never through an emoji, whose halves Postgres refuses to store. */
 export function cutText(text: string, limit: number): string {
-    return text.length > limit ? `${text.slice(0, limit)} …[cut]` : text;
+    if (text.length <= limit) return text;
+    const endsMidPair = /[\uD800-\uDBFF]/.test(text.charAt(limit - 1));
+    return `${text.slice(0, endsMidPair ? limit - 1 : limit)} …[cut]`;
 }
 
 export function toHistoryMessage(

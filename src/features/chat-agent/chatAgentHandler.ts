@@ -7,10 +7,10 @@ import type { PerGuildQueue } from '../../shared/perGuildQueue';
 import { turnLimitsFor } from './agent/runChatTurn';
 import { runReviewedTurn, type ReviewedTurn } from './agent/runReviewedTurn';
 import type { ChatRateLimiter } from './safety/rateLimit';
-import type { ChatSessionStore } from './session/chatSessionStore';
+import { NEW_SESSION, sessionTurnFrom, type ChatSessions } from './session/chatSessions';
 import { readChannelHistory } from './session/discordHistory';
 import { historyToModelMessages } from './session/historyToModelMessages';
-import { withoutStaffOnlyResults } from './session/staffOnlyTrace';
+import { sessionMemory } from './session/sessionReplay';
 import { buildChatTools } from './tools/buildChatTools';
 import { buildChatToolContext, findLiveTicket } from './tools/chatToolContext';
 import type { TicketEntity } from '../tickets';
@@ -18,7 +18,7 @@ import { mightBeForBot, readTriggerFacts, resolveTrigger, type RepliedTo } from 
 
 /** The long-lived pieces one handler call works with; one set per process. */
 export type ChatAgentDependencies = {
-    readonly sessions: ChatSessionStore;
+    readonly sessions: Pick<ChatSessions, 'resolve' | 'record'>;
     /** One turn at a time per channel — keyed by channel id, not guild. */
     readonly channelQueue: PerGuildQueue;
     /** Turns queued or running per channel, for {@link MAX_QUEUED_TURNS_PER_CHANNEL}. */
@@ -62,6 +62,8 @@ export async function handleChatMessage(message: Message, botUser: ClientUser, d
     // Only a reply to the bot, outside a ticket, needs the reply chain: inside one, only a mention counts.
     const repliesToBot = !!message.reference?.messageId && message.mentions.repliedUser?.id === botUser.id;
     const repliedTo = !ticket && repliesToBot ? await fetchRepliedChain(message) : null;
+    // A reply to the bot names the post whose session it may carry on, ticket or not.
+    const repliedToId = repliesToBot ? (message.reference?.messageId ?? null) : null;
     const trigger = resolveTrigger(readTriggerFacts(message, botUser.id, repliedTo, !!ticket));
     if (trigger.kind === 'none') return;
 
@@ -73,7 +75,7 @@ export async function handleChatMessage(message: Message, botUser: ClientUser, d
             await message.reply({ content: RATE_LIMIT_WARNING, ...REPLY_OPTIONS });
             return;
         case 'allow':
-            await queueTurn(message, ticket, botUser, deps);
+            await queueTurn({ message, ticket, repliedToId }, botUser, deps);
             return;
     }
 }
@@ -95,12 +97,17 @@ async function fetchReferenceOrNull(message: Message): Promise<Message | null> {
     }
 }
 
-async function queueTurn(
-    message: Message<true>,
-    ticket: TicketEntity | null,
-    botUser: ClientUser,
-    deps: ChatAgentDependencies
-): Promise<void> {
+/** One message the bot will answer, and what the gate found out about it on the way. */
+type ChatRequest = {
+    readonly message: Message<true>;
+    /** The live ticket the channel is, or null. */
+    readonly ticket: TicketEntity | null;
+    /** The bot's message it replies to, whose session it may carry on; null when it replies to none. */
+    readonly repliedToId: string | null;
+};
+
+async function queueTurn(request: ChatRequest, botUser: ClientUser, deps: ChatAgentDependencies): Promise<void> {
+    const { message } = request;
     const pending = deps.pendingTurns.get(message.channelId) ?? 0;
     if (pending >= MAX_QUEUED_TURNS_PER_CHANNEL) {
         console.warn(`[chat-agent] channel ${message.channelId} has ${pending} turns waiting; dropped one`);
@@ -108,7 +115,7 @@ async function queueTurn(
     }
     deps.pendingTurns.set(message.channelId, pending + 1);
     try {
-        await deps.channelQueue(message.channelId, () => answer(message, ticket, botUser, deps));
+        await deps.channelQueue(message.channelId, () => answer(request, botUser, deps));
     } finally {
         const left = (deps.pendingTurns.get(message.channelId) ?? 1) - 1;
         if (left > 0) deps.pendingTurns.set(message.channelId, left);
@@ -116,12 +123,7 @@ async function queueTurn(
     }
 }
 
-async function answer(
-    message: Message<true>,
-    ticket: TicketEntity | null,
-    botUser: ClientUser,
-    deps: ChatAgentDependencies
-): Promise<void> {
+async function answer({ message, ticket, repliedToId }: ChatRequest, botUser: ClientUser, deps: ChatAgentDependencies): Promise<void> {
     const stopTyping = keepTyping(message);
     let postedIds: string[] = [];
     try {
@@ -134,7 +136,13 @@ async function answer(
             viewers: context.viewers,
             canReadHistory: context.viewersCanReadHistory,
         });
-        const messages = historyToModelMessages(history, deps.sessions.traceLookup(message.channelId), asker.id);
+        const modelId = typeof deps.model === 'string' ? deps.model : deps.model.modelId;
+        // The session is an aid: one that cannot be read costs this turn its memory, never its answer.
+        const session = await deps.sessions.resolve(message, botUser.id, repliedToId).catch((error: unknown) => {
+            console.error(`[chat-agent] could not read the session in channel ${message.channelId}: ${describeFailure(error)}`);
+            return NEW_SESSION;
+        });
+        const messages = historyToModelMessages(history, sessionMemory(session.turns, history, { ...context, modelId }));
 
         const tools = buildChatTools(context);
         const limits = turnLimitsFor(context);
@@ -168,7 +176,21 @@ async function answer(
             await postReply(message, parts, (id) => postedIds.push(id));
         } finally {
             // Whatever did post is the bot's message now, with this turn behind it.
-            deps.sessions.recordTurn(message.channelId, postedIds, { askerId: asker.id, messages: withoutStaffOnlyResults(turn.responseMessages) });
+            if (postedIds.length > 0) {
+                const posted = { parts, ids: postedIds };
+                await Promise.resolve()
+                    .then(() =>
+                        deps.sessions.record({
+                            sessionId: session.id,
+                            guildId: message.guildId,
+                            channelId: message.channelId,
+                            turn: sessionTurnFrom({ history, context, modelId, messages: turn.responseMessages, posted }),
+                            now: new Date(),
+                        })
+                    )
+                    // The reply is posted; a session that missed it only costs the next turn its lookups.
+                    .catch((error: unknown) => console.error(`[chat-agent] could not record the turn in channel ${message.channelId}: ${describeFailure(error)}`));
+            }
         }
     } catch (error) {
         console.error(`[chat-agent] turn failed in channel ${message.channelId}: ${describeFailure(error)}`);

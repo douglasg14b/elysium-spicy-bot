@@ -36,6 +36,11 @@ import { ActivityRecorderSessionsTable } from '../activity/data/activityRecorder
 import { MemberNamesTable } from '../member-names/data/memberNamesSchema';
 import { MemberAvatarsTable } from '../member-names/data/memberAvatarsSchema';
 import { ChatAgentConfigTable } from '../../features/chat-agent/data/chatAgentConfigSchema';
+import {
+    ChatAgentSessionPostsTable,
+    ChatAgentSessionsTable,
+    ChatAgentSessionTurnsTable,
+} from '../../features/chat-agent/data/chatSessionsSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -66,6 +71,9 @@ export interface Database {
     member_names: MemberNamesTable;
     member_avatars: MemberAvatarsTable;
     chat_agent_config: ChatAgentConfigTable;
+    chat_agent_sessions: ChatAgentSessionsTable;
+    chat_agent_session_turns: ChatAgentSessionTurnsTable;
+    chat_agent_session_posts: ChatAgentSessionPostsTable;
 }
 
 function getDbDialect() {
@@ -138,6 +146,9 @@ function getDatabaseClient() {
                 // `bytes` is a Buffer on both drivers, as `guild_uploads.bytes` is.
                 member_avatars: ['fetchedAt'],
                 chat_agent_config: ['createdAt', 'updatedAt'],
+                chat_agent_sessions: ['startedAt', 'lastActiveAt'],
+                chat_agent_session_turns: ['createdAt'],
+                // `chat_agent_session_posts` has no dates, booleans or JSON: in no plugin.
         }),
     ];
 
@@ -173,6 +184,8 @@ function getDatabaseClient() {
                     member_names: ['nicknames'],
                     // No boolean columns, so absent from SqliteBindingPlugin above.
                     chat_agent_config: ['config'],
+                    // No boolean columns, so absent from SqliteBindingPlugin above.
+                    chat_agent_session_turns: ['messages', 'readerIds', 'visibleChannelIds', 'postIds'],
                 }),
                 ...plugins,
             ],

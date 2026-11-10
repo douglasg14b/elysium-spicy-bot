@@ -6,7 +6,7 @@
 import type { ModelMessage } from 'ai';
 import { ChannelType } from 'discord.js';
 import type { Guild, GuildBasedChannel, GuildMember, GuildTextBasedChannel } from 'discord.js';
-import { historyToModelMessages, type HistoryMessage } from '../src/features/chat-agent/session/historyToModelMessages';
+import { historyToModelMessages, type EarlierTurn, type HistoryMessage } from '../src/features/chat-agent/session/historyToModelMessages';
 import { buildChatTools, type ChatTools } from '../src/features/chat-agent/tools/buildChatTools';
 import type { ChatAgentConfig } from '../src/features/chat-agent/data/chatAgentConfigSchema';
 import { describeBotFeature } from '../src/features/chat-agent/tools/botFeatureTools';
@@ -330,6 +330,41 @@ const FIXTURE_TICKET_PAGES: readonly FixturePage[] = [
     },
 ];
 
+/** A readChannelMessages call and its page, as a session keeps them. */
+function readPage(callId: string, input: { channel: string; before?: string }, page: FixturePage): ModelMessage[] {
+    return [
+        { role: 'assistant', content: [{ type: 'tool-call', toolCallId: callId, toolName: 'readChannelMessages', input }] },
+        {
+            role: 'tool',
+            content: [
+                {
+                    type: 'tool-result',
+                    toolCallId: callId,
+                    toolName: 'readChannelMessages',
+                    output: { type: 'json', value: { found: true, channel: page.channel, messages: page.messages, continueBefore: page.continueBefore, pagesLeft: 8 } },
+                },
+            ],
+        },
+    ];
+}
+
+/**
+ * Earlier in the session, from before the window: Kat asked about ticket 57 and the bot read
+ * both its pages. The answer says nothing of when River asked to close it — only the pages do.
+ */
+export const FIXTURE_SESSION_TICKET_READ: EarlierTurn = {
+    question: '[2026-11-09 18:40] Kat: what was ticket 57 about?',
+    answer: 'River reported Damon for DMing her three times after a no — a rule 3 breach. Kat claimed it and put Damon on a final warning.',
+    trace: [
+        ...readPage('call-1', { channel: '#ticket-0057-river' }, FIXTURE_TICKET_PAGES[0]),
+        ...readPage('call-2', { channel: '#ticket-0057-river', before: '500000000000000101' }, FIXTURE_TICKET_PAGES[1]),
+        {
+            role: 'assistant',
+            content: 'River reported Damon for DMing her three times after a no — a rule 3 breach. Kat claimed it and put Damon on a final warning.',
+        },
+    ],
+};
+
 /** Who can see ticket 57's channel, whatever is asked about: the moderators, and River, let in by name. */
 const FIXTURE_TICKET_ACCESS = {
     found: true,
@@ -383,8 +418,15 @@ export function fixtureTools(context: ChatToolContext, staffAccess: StaffHelpAcc
     ) as unknown as ChatTools;
 }
 
-/** A conversation: earlier `[author, text]` lines, then the asker @-ing the bot — through the real history formatting. */
-export function fixtureConversation(before: readonly (readonly [string, string])[], question: string): ModelMessage[] {
+/**
+ * A conversation: earlier `[author, text]` lines, then the asker @-ing the bot — through the
+ * real history formatting. `earlier` is a session's turns from before the window.
+ */
+export function fixtureConversation(
+    before: readonly (readonly [string, string])[],
+    question: string,
+    earlier: readonly EarlierTurn[] = []
+): ModelMessage[] {
     const message = (id: string, authorName: string, content: string, minutesAgo: number, isBeingAnswered: boolean): HistoryMessage => ({
         id,
         authorName,
@@ -399,5 +441,5 @@ export function fixtureConversation(before: readonly (readonly [string, string])
         ...before.map(([author, text], index) => message(`before-${index}`, author, text, before.length - index + 1, false)),
         message('question', FIXTURE_ASKER_NAME, `@BrattyBot ${question}`, 0, true),
     ];
-    return historyToModelMessages(history, () => undefined, FIXTURE_ASKER_ID);
+    return historyToModelMessages(history, { postFor: () => undefined, earlier });
 }

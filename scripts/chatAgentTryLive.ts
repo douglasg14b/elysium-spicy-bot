@@ -103,7 +103,7 @@ async function main(): Promise<void> {
         {
             context,
             tools,
-            messages: historyToModelMessages(history, () => undefined, asker.id),
+            messages: historyToModelMessages(history),
             model: chatModel(modelId),
             botName,
         },
