@@ -48,7 +48,8 @@ export const ANSWERING_MARK = '→ ';
  *
  * Trimmed from the oldest end to the character budget; the message being answered and
  * everything after it always stay, and a turn is kept or dropped whole, so a tool result
- * is never separated from its call.
+ * is never separated from its call. A traced turn too big to fit is kept as its plain text
+ * instead, so one long lookup does not cost the conversation before it.
  */
 export function historyToModelMessages(
     history: readonly HistoryMessage[],
@@ -56,10 +57,10 @@ export function historyToModelMessages(
     askerId: string,
     characterBudget: number = HISTORY_CHARACTER_BUDGET
 ): ModelMessage[] {
-    const turns: { turn: ModelMessage[]; isBeingAnswered: boolean }[] = [];
+    const turns: { turn: ModelMessage[]; plain: ModelMessage[]; isBeingAnswered: boolean }[] = [];
     for (const message of history) {
         const turn = toTurn(message, traceFor, askerId);
-        if (turn) turns.push({ turn, isBeingAnswered: message.isBeingAnswered });
+        if (turn) turns.push({ turn, plain: toPlainTurn(message), isBeingAnswered: message.isBeingAnswered });
     }
 
     const answeredIndex = turns.findLastIndex((entry) => entry.isBeingAnswered);
@@ -67,10 +68,10 @@ export function historyToModelMessages(
     const kept = turns.slice(firstKept).map((entry) => entry.turn);
     let used = kept.reduce((total, turn) => total + JSON.stringify(turn).length, 0);
     for (let index = firstKept - 1; index >= 0; index--) {
-        const size = JSON.stringify(turns[index].turn).length;
-        if (used + size > characterBudget) break;
-        kept.unshift(turns[index].turn);
-        used += size;
+        const fitting = [turns[index].turn, turns[index].plain].find((form) => used + JSON.stringify(form).length <= characterBudget);
+        if (!fitting) break;
+        kept.unshift(fitting);
+        used += JSON.stringify(fitting).length;
     }
     return dropLeadingNonUserTurns(kept).flat();
 }
@@ -80,9 +81,13 @@ function toTurn(message: HistoryMessage, traceFor: TraceLookup, askerId: string)
         const trace = traceFor(message.id);
         if (trace === 'continuation') return undefined;
         if (trace && trace.askerId === askerId) return [...trace.messages];
-        return [{ role: 'assistant', content: message.content }];
     }
-    return [{ role: 'user', content: formatUserLine(message) }];
+    return toPlainTurn(message);
+}
+
+/** The message as its text alone: the bot's as an assistant turn, anyone else's as a user line. */
+function toPlainTurn(message: HistoryMessage): ModelMessage[] {
+    return message.isFromThisBot ? [{ role: 'assistant', content: message.content }] : [{ role: 'user', content: formatUserLine(message) }];
 }
 
 /** `→ [2026-11-06 21:04] Vex (replying to Mara): text` — who and when, since every user turn shares one role. */

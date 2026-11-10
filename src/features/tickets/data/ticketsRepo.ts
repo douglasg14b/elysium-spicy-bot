@@ -127,6 +127,18 @@ export class TicketsRepo {
         return (await query.executeTakeFirst()) ?? null;
     }
 
+    /** A member's tickets in a guild, any status, newest first, at most `limit` (ask one more to know there are more). */
+    async listBySubject(guildId: string, subjectId: string, limit: number): Promise<TicketEntity[]> {
+        return database
+            .selectFrom('tickets')
+            .selectAll()
+            .where('guildId', '=', guildId)
+            .where('subjectId', '=', subjectId)
+            .orderBy('ticketNumber', 'desc')
+            .limit(limit)
+            .execute();
+    }
+
     async findOpenBySubject(guildId: string, subjectId: string, type?: TicketType): Promise<TicketEntity[]> {
         let query = database
             .selectFrom('tickets')
@@ -223,7 +235,7 @@ export class TicketsRepo {
     async searchByGuild(
         guildId: string,
         query: string,
-        filter?: { status?: TicketStatus; type?: string; unclaimedOnly?: boolean }
+        filter?: { status?: TicketStatus; type?: string; unclaimedOnly?: boolean; subjectOnly?: boolean }
     ): Promise<TicketEntity[]> {
         const trimmed = query.trim();
 
@@ -279,14 +291,11 @@ export class TicketsRepo {
             const matches = (column: 'subjectUsername' | 'subjectNickname' | 'openerUsername' | 'claimerUsername') =>
                 sql<boolean>`lower(${sql.ref(column)}) like ${prefix} escape ${'\\'}`;
 
-            statement = statement.where((eb) =>
-                eb.or([
-                    matches('subjectUsername'),
-                    matches('subjectNickname'),
-                    matches('openerUsername'),
-                    matches('claimerUsername'),
-                ])
-            );
+            // `subjectOnly`: tickets about the person, not ones they opened or claimed.
+            const columns = filter?.subjectOnly
+                ? (['subjectUsername', 'subjectNickname'] as const)
+                : (['subjectUsername', 'subjectNickname', 'openerUsername', 'claimerUsername'] as const);
+            statement = statement.where((eb) => eb.or(columns.map(matches)));
         }
 
         // Same cap as the unfiltered list, and it matters more here: a text search is a

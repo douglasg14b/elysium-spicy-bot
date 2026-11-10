@@ -4,11 +4,13 @@ import { DiscordAPIError, PermissionFlagsBits, RESTJSONErrorCodes } from 'discor
 import type { ClientUser, Message, MessageMentionOptions } from 'discord.js';
 import { guildSettingsRepo } from '../../features-system/guild-settings';
 import type { PerGuildQueue } from '../../shared/perGuildQueue';
+import { turnLimitsFor } from './agent/runChatTurn';
 import { runReviewedTurn, type ReviewedTurn } from './agent/runReviewedTurn';
 import type { ChatRateLimiter } from './safety/rateLimit';
 import type { ChatSessionStore } from './session/chatSessionStore';
 import { readChannelHistory } from './session/discordHistory';
 import { historyToModelMessages } from './session/historyToModelMessages';
+import { withoutStaffOnlyResults } from './session/staffOnlyTrace';
 import { buildChatTools } from './tools/buildChatTools';
 import { buildChatToolContext, findLiveTicket } from './tools/chatToolContext';
 import type { TicketEntity } from '../tickets';
@@ -24,9 +26,6 @@ export type ChatAgentDependencies = {
     readonly rateLimiter: ChatRateLimiter;
     readonly model: LanguageModel;
 };
-
-/** A turn that has not answered by now is abandoned with the fallback line. */
-const TURN_TIMEOUT_MS = 90_000;
 
 /**
  * More than this many turns waiting in one channel and new ones are dropped: answers
@@ -138,6 +137,7 @@ async function answer(
         const messages = historyToModelMessages(history, deps.sessions.traceLookup(message.channelId), asker.id);
 
         const tools = buildChatTools(context);
+        const limits = turnLimitsFor(context);
         const botName = message.guild.members.me?.displayName ?? botUser.displayName;
         const reviewed = await runReviewedTurn(
             {
@@ -147,7 +147,9 @@ async function answer(
                 timeZone: timeZone.effective,
                 model: deps.model,
                 botName,
-                abortSignal: AbortSignal.timeout(TURN_TIMEOUT_MS),
+                maxSteps: limits.maxSteps,
+                // A turn that has not answered by then is abandoned with the fallback line.
+                abortSignal: AbortSignal.timeout(limits.timeoutMs),
             },
             { viewers: context.viewers, inTicket: !!ticket, botName, toolNames: Object.keys(tools) }
         );
@@ -166,7 +168,7 @@ async function answer(
             await postReply(message, parts, (id) => postedIds.push(id));
         } finally {
             // Whatever did post is the bot's message now, with this turn behind it.
-            deps.sessions.recordTurn(message.channelId, postedIds, { askerId: asker.id, messages: turn.responseMessages });
+            deps.sessions.recordTurn(message.channelId, postedIds, { askerId: asker.id, messages: withoutStaffOnlyResults(turn.responseMessages) });
         }
     } catch (error) {
         console.error(`[chat-agent] turn failed in channel ${message.channelId}: ${describeFailure(error)}`);

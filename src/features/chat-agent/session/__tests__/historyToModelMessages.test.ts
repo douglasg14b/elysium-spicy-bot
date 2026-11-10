@@ -126,4 +126,17 @@ describe('historyToModelMessages', () => {
         expect(messages[0].role).toBe('user');
         expect(messages).toHaveLength(1);
     });
+
+    it('keeps a trace too big to fit as its plain text, so the conversation before it stays', () => {
+        const huge: readonly ModelMessage[] = [LOOKED_UP_RULES[0], LOOKED_UP_RULES[1], { role: 'assistant', content: 'x'.repeat(2_000) }];
+        const history = [said('1', 'Vex', 'what was ticket 57 about?'), botSaid('2', 'River vs Damon, final warning.'), asked('3', 'Vex', 'and before that?')];
+        const traced = (id: string): TurnTrace | undefined => (id === '2' ? { askerId: VEX, messages: huge } : undefined);
+
+        const messages = historyToModelMessages(history, traced, VEX, 1_000);
+
+        expect(messages).toHaveLength(3);
+        expect(messages[0]).toMatchObject({ role: 'user', content: expect.stringContaining('ticket 57') });
+        expect(messages[1]).toEqual({ role: 'assistant', content: 'River vs Damon, final warning.' });
+    });
 });
+

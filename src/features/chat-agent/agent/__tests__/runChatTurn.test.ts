@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { TicketEntity } from '../../../tickets';
 import type { ChatToolContext } from '../../tools/chatToolContext';
 import { buildChatTools } from '../../tools/buildChatTools';
-import { runChatTurn } from '../runChatTurn';
+import { MAX_AGENT_STEPS, runChatTurn, STAFF_MAX_AGENT_STEPS, turnLimitsFor } from '../runChatTurn';
 
 const USAGE = {
     inputTokens: { total: 10, noCache: 10, cacheRead: undefined, cacheWrite: undefined },
@@ -108,11 +108,13 @@ describe('runChatTurn', () => {
         expect(system?.content).toContain('Channel: #s42-support-vex');
         expect(call.tools?.map((tool) => tool.name).sort()).toEqual(
             [
+                'findTickets',
                 'getBotFeature',
                 'getChannelInfo',
                 'getMemberInfo',
                 'getServerInfo',
                 'getServerRules',
+                'readChannelMessages',
                 'readContextChannel',
                 'getTicketInfo',
                 'getUserLevel',
@@ -165,5 +167,48 @@ describe('runChatTurn', () => {
         expect(turn.stayedQuiet).toBe(true);
         expect(turn.text).toBe('');
         expect(model.doGenerateCalls).toHaveLength(1);
+    });
+});
+
+describe('runChatTurn step limit', () => {
+    /** A model that never stops looking things up. */
+    const lookingForever = () =>
+        new MockLanguageModelV4({
+            doGenerate: async () => ({
+                content: [{ type: 'tool-call', toolCallId: `call-${Math.random()}`, toolName: 'getTicketInfo', input: '{}' }],
+                finishReason: { unified: 'tool-calls', raw: undefined },
+                usage: USAGE,
+                warnings: [],
+            }),
+        });
+    const runWith = (maxSteps?: number) => {
+        const context = ticketChannelContext();
+        return runChatTurn({
+            context,
+            tools: buildChatTools(context),
+            messages: [{ role: 'user', content: '[2026-11-06 21:04] Vex: dig' }],
+            model: lookingForever(),
+            botName: 'BrattyBot',
+            maxSteps,
+        });
+    };
+
+    it(`stops at ${MAX_AGENT_STEPS} rounds unless the caller allows more`, async () => {
+        expect((await runWith()).steps).toBe(MAX_AGENT_STEPS);
+        expect((await runWith(STAFF_MAX_AGENT_STEPS)).steps).toBe(STAFF_MAX_AGENT_STEPS);
+    });
+});
+
+describe('turnLimitsFor', () => {
+    const guild = { ownerId: 'owner', memberCount: 2, members: { cache: { size: 2 } } };
+    const member = (id: string) =>
+        ({ id, guild, permissions: { has: () => false }, roles: { cache: new Map() } }) as unknown as GuildMember;
+    const limitsAmong = (...ids: string[]) =>
+        turnLimitsFor({ viewers: ids.map(member), staffRoleIds: [] } as unknown as ChatToolContext).maxSteps;
+
+    it('gives a staff-only room room to page back, and every other turn the short leash', () => {
+        expect(limitsAmong('owner')).toBe(STAFF_MAX_AGENT_STEPS);
+        expect(limitsAmong('owner', 'vex')).toBe(MAX_AGENT_STEPS);
+        expect(limitsAmong('vex')).toBe(MAX_AGENT_STEPS);
     });
 });

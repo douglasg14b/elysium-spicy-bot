@@ -1,4 +1,5 @@
 import { PermissionFlagsBits, type GuildMember } from 'discord.js';
+import type { ChatToolContext } from './chatToolContext';
 import type { Viewers } from './visibleChannels';
 
 /**
@@ -12,12 +13,13 @@ export function isStaffMember(member: GuildMember, staffRoleIds: readonly string
     return staffRoleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
-/** Who may hear about the bot's features in this turn, and why not when not. */
+/** Whether the staff-only tools (bot features, tickets, channel history) answer this turn, and why not when not. */
 export type StaffHelpAccess = 'allowed' | 'askerNotStaff' | 'readersNotStaff' | 'readersUnknown';
 
 /**
  * The asker must be staff, and so must everyone else who can read the answer — the bot's
- * features and this server's setup are told only where every reader is staff.
+ * features, this server's setup, its tickets and other channels' messages are told only
+ * where every reader is staff.
  *
  * The readers are the guild's member cache (`viewersOf`), which is whole only once the
  * member-names sweep has fetched the server. Until then a member nobody has seen yet is no
@@ -29,4 +31,29 @@ export function staffHelpAccess(viewers: Viewers, staffRoleIds: readonly string[
     if (!isStaffMember(asker, staffRoleIds)) return 'askerNotStaff';
     if (asker.guild.members.cache.size < asker.guild.memberCount) return 'readersUnknown';
     return readers.every((reader) => isStaffMember(reader, staffRoleIds)) ? 'allowed' : 'readersNotStaff';
+}
+
+/** Why a staff-only tool won't answer this turn, and how the model should say so. */
+type StaffOnlyRefusal = { readonly reason: string; readonly tellThem: string };
+
+/** What a staff-only tool hands the model when the answer is not for this turn, and nothing else. */
+export const STAFF_ONLY_REFUSALS: Readonly<Record<Exclude<StaffHelpAccess, 'allowed'>, StaffOnlyRefusal>> = {
+    askerNotStaff: {
+        reason: 'Only staff can ask this.',
+        tellThem: "Turn them down in character — dry, a little smug, no apology: it's above their pay grade, so they can ask a mod. Stop at \"ask a mod\": not what a mod will do or tell them. Say nothing of what they asked about.",
+    },
+    readersNotStaff: {
+        reason: "People who aren't staff can read this channel.",
+        tellThem: 'In character, no apology: not where the members can read along — ask again in a channel only staff can see. Say nothing of what they asked about.',
+    },
+    readersUnknown: {
+        reason: "The bot is still loading this server's member list, so it can't yet tell who can read this channel.",
+        tellThem: "In character, no apology: you can't vouch for who's reading yet — ask again in a few minutes. Say nothing of what they asked about.",
+    },
+};
+
+/** What a staff-only tool answers instead, when this turn is not for it; null when it may answer. */
+export function staffOnlyRefusal(context: Pick<ChatToolContext, 'viewers' | 'staffRoleIds'>): StaffOnlyRefusal | null {
+    const access = staffHelpAccess(context.viewers, context.staffRoleIds);
+    return access === 'allowed' ? null : STAFF_ONLY_REFUSALS[access];
 }

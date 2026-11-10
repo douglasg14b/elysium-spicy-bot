@@ -22,3 +22,8 @@ export function memberHasModeratorRole(member: GuildMember, roleIds: string[]) {
 export function memberHasModeratorPerms(member: GuildMember) {
     return member.permissions.has('ModerateMembers');
 }
+
+/** Whether the member handles tickets: one of the stored moderation roles, or Moderate Members. */
+export function memberHandlesTickets(member: GuildMember, moderationRoles: string[]): boolean {
+    return memberHasModeratorRole(member, moderationRoles) || memberHasModeratorPerms(member);
+}

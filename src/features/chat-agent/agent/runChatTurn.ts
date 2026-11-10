@@ -2,11 +2,28 @@ import { hasToolCall, stepCountIs, ToolLoopAgent } from 'ai';
 import type { LanguageModel, ModelMessage } from 'ai';
 import type { ChatTools } from '../tools/buildChatTools';
 import type { ChatToolContext } from '../tools/chatToolContext';
+import { staffHelpAccess } from '../tools/staffAccess';
 import { STAY_QUIET_TOOL } from '../tools/stayQuietTool';
 import { buildChatInstructions } from './chatInstructions';
 
 /** Tool rounds before the agent must answer with what it has. */
 export const MAX_AGENT_STEPS = 6;
+
+/** A turn where staff may read back through a channel: its page budget, a few lookups, and the answer. */
+export const STAFF_MAX_AGENT_STEPS = 16;
+
+/** How long a turn may run before it is given up, by the same split. */
+const TURN_TIMEOUT_MS = 90_000;
+const STAFF_TURN_TIMEOUT_MS = 180_000;
+
+type TurnLimits = { readonly maxSteps: number; readonly timeoutMs: number };
+
+/** Longer for a turn the staff-only tools will answer in; every other turn keeps the short leash. */
+export function turnLimitsFor(context: ChatToolContext): TurnLimits {
+    return staffHelpAccess(context.viewers, context.staffRoleIds) === 'allowed'
+        ? { maxSteps: STAFF_MAX_AGENT_STEPS, timeoutMs: STAFF_TURN_TIMEOUT_MS }
+        : { maxSteps: MAX_AGENT_STEPS, timeoutMs: TURN_TIMEOUT_MS };
+}
 
 /** Generous for a chat reply; a runaway answer is cut by the send anyway. */
 const MAX_OUTPUT_TOKENS = 1_200;
@@ -23,6 +40,8 @@ export type ChatTurnInput = {
     readonly persona?: string;
     /** The server's time zone, so the agent knows what time it is there. */
     readonly timeZone?: string;
+    /** Tool rounds allowed; {@link MAX_AGENT_STEPS} unless the caller's {@link turnLimitsFor} says more. */
+    readonly maxSteps?: number;
     readonly abortSignal?: AbortSignal;
 };
 
@@ -46,7 +65,7 @@ function activeToolsFor(input: ChatTurnInput): (keyof ChatTools)[] {
 
 /**
  * One turn of the chat agent: given the conversation and where it is happening, let the
- * model look things up with its tools for up to {@link MAX_AGENT_STEPS} rounds and answer.
+ * model look things up with its tools for up to `maxSteps` rounds and answer.
  *
  * Built per turn because the tools close over this turn's server, channel and asker.
  * Has no Discord side effects of its own — tools only read — so the caller owns posting.
@@ -57,7 +76,7 @@ export async function runChatTurn(input: ChatTurnInput): Promise<ChatTurnResult>
         instructions: buildChatInstructions(input.context, input.botName, input.persona, input.timeZone),
         tools: input.tools,
         activeTools: activeToolsFor(input),
-        stopWhen: [stepCountIs(MAX_AGENT_STEPS), hasToolCall(STAY_QUIET_TOOL)],
+        stopWhen: [stepCountIs(input.maxSteps ?? MAX_AGENT_STEPS), hasToolCall(STAY_QUIET_TOOL)],
         maxOutputTokens: MAX_OUTPUT_TOKENS,
     });
 
