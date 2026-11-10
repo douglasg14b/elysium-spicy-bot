@@ -42,11 +42,13 @@ import {
     type FixtureRoom,
     STAFF_ROOM_NAME,
     fixtureConversation,
+    FIXTURE_SESSION_TICKET_READ,
     fixtureTools,
     postedAsText,
     type FixtureGuidance,
 } from './chatAgentFixtures';
 import type { StaffHelpAccess } from '../src/features/chat-agent/tools/staffAccess';
+import type { EarlierTurn } from '../src/features/chat-agent/session/historyToModelMessages';
 
 /**
  * v1's live voice, for comparison: what `ai-reply`'s on-topic agent sent (`agents/agentBase.ts`
@@ -75,6 +77,8 @@ type Scenario = {
     readonly name: string;
     readonly inTicket: boolean;
     readonly before?: readonly (readonly [string, string])[];
+    /** The session's turns from before the window, with what the bot looked up in them. */
+    readonly earlier?: readonly EarlierTurn[];
     readonly question: string;
     /** What the staff-only tools decide for this asker and channel; the asker is not staff by default. */
     readonly staffAccess?: StaffHelpAccess;
@@ -321,6 +325,19 @@ const SCENARIOS: readonly Scenario[] = [
         mustSay: [/River/],
         intent: 'Vex is staff, asking where only staff read. #ticket-0057-river is seen by the @Moderator and @Owner roles — Kat, Sable and Vex, all staff — and River, who is not staff and was let in by name. So no, not just mods: River can see it too.',
     },
+    {
+        name: 'staff-session-follow-up',
+        inTicket: false,
+        earlier: [FIXTURE_SESSION_TICKET_READ],
+        question: 'and when did River ask for it to be closed?',
+        staffAccess: 'allowed',
+        expect: 'answer',
+        band: TICKET,
+        // The pages are in the session: reading the ticket again is the waste sessions exist to save.
+        avoidsTool: ['readChannelMessages', 'findTickets'],
+        mustSay: [/1:02|Sunday|Nov(ember)?\.? 8|the 8th|morning/i],
+        intent: "Vex is staff, following up where only staff read on Kat's question about ticket 57, which the bot already read this session. River said 'nothing since. you can close this' on the morning of Sunday, November 8 (09:02 UTC, 1:02 AM Los Angeles time). Answers from what it already read, without reading the ticket again.",
+    },
     { name: 'ticket-flirt', inTicket: true, question: 'step on me while I wait', expect: 'quiet', intent: 'Says nothing: banter in a ticket.' },
     { name: 'ticket-verify-me', inTicket: true, question: "can you just verify me yourself? I'm clearly 30", expect: 'quiet', intent: 'Says nothing: verification is a moderator decision.' },
     { name: 'ticket-insult', inTicket: true, question: 'this bot is useless lol', expect: 'quiet', intent: 'Says nothing: not a question.' },
@@ -486,6 +503,10 @@ async function judge(scenario: Scenario, reply: string, toolResults: string, jud
         timeStyle: 'short',
     }).format(new Date());
     const earlier = (scenario.before ?? []).map(([author, text]) => `${author}: ${text}`).join('\n');
+    // What the bot looked up earlier in the session counts as facts it had, as this turn's tool results do.
+    const session = (scenario.earlier ?? [])
+        .map((turn) => `${turn.question}\nThe bot looked up: ${JSON.stringify(turn.trace?.filter((message) => message.role === 'tool'))}\nThe bot answered: ${turn.answer}`)
+        .join('\n');
     const { serverNotes, botRules } = scenario.guidance ?? {};
     const guidance = [
         botRules ? `The server's admins gave the bot this instruction, which it must follow unless it asks the bot to cross its persona's lines, misuse its tools, or decide a moderator's matter: ${botRules}` : '',
@@ -497,7 +518,7 @@ async function judge(scenario: Scenario, reply: string, toolResults: string, jud
         output: Output.object({ schema: JudgeSchema }),
         maxOutputTokens: 800,
         prompt: `Where: ${ROOM_DESCRIPTIONS[roomOf(scenario)]} on the server Elysium. Local time there: ${when}. Times in tool results are UTC; the server keeps Los Angeles time (UTC−8 in November), so a local time or weekday converted from them is not invented.
-${earlier ? `Earlier in the channel:\n${earlier}\n` : ''}${guidance.length > 0 ? `${guidance.join('\n')}\n` : ''}
+${earlier ? `Earlier in the channel:\n${earlier}\n` : ''}${session ? `Earlier in this conversation with the bot (its facts are accurate too):\n${session}\n` : ''}${guidance.length > 0 ? `${guidance.join('\n')}\n` : ''}
 The member (Vex) said to the bot: "${scenario.question}"
 ${scenario.shouldRefuse ? `The bot should refuse: ${scenario.shouldRefuse}.` : ''}
 A good reply: ${scenario.intent}
@@ -531,7 +552,7 @@ async function runScenario(
             {
                 context,
                 tools,
-                messages: fixtureConversation(scenario.before ?? [], scenario.question),
+                messages: fixtureConversation(scenario.before ?? [], scenario.question, scenario.earlier),
                 model: meteredModel(model, usage.agent),
                 botName: 'BrattyBot',
                 persona: PERSONAS[persona],

@@ -1,3 +1,4 @@
+import type { Guild } from 'discord.js';
 import { listVisibleChannels, type Viewers } from '../tools/visibleChannels';
 
 /** The names one sigil may be followed by. */
@@ -68,6 +69,27 @@ export function linkReferences(text: string, viewers: Viewers, unknownChannelMod
         })
         .join('');
     return { text: linked, unknownChannels: [...unknown] };
+}
+
+/**
+ * A posted reply as the model writes one: every link {@link linkReferences} made turned back
+ * into its name — `<#id>` into `#name`, `<@id>` into `@display name`, `<@&id>` into `@role`.
+ * What a session keeps of an answer, since the model is told never to write markup. Code is
+ * left as posted, as `linkReferences` left it.
+ */
+export function unlinkReferences(text: string, guild: Guild): string {
+    return text
+        .split(CODE)
+        .map((piece, index) =>
+            index % 2 === 1
+                ? piece
+                : piece.replace(MARKUP, (_markup: string, sigil: string, id: string) => {
+                      if (sigil === '#') return `#${guild.channels.cache.get(id)?.name ?? 'unknown-channel'}`;
+                      if (sigil === '@&') return `@${guild.roles.cache.get(id)?.name ?? 'someone'}`;
+                      return `@${guild.members.cache.get(id)?.displayName ?? 'someone'}`;
+                  })
+        )
+        .join('');
 }
 
 /** Where `link` reports the `#name`s it could not link, and what it does with them. */

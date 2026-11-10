@@ -1,8 +1,8 @@
 import { ChannelType, PermissionFlagsBits } from 'discord.js';
-import type { GuildBasedChannel, GuildMember } from 'discord.js';
+import type { Guild, GuildBasedChannel, GuildMember } from 'discord.js';
 import { describe, expect, it } from 'vitest';
 import type { Viewers } from '../../tools/visibleChannels';
-import { linkReferences } from '../linkReferences';
+import { linkReferences, unlinkReferences } from '../linkReferences';
 
 const GUILD_ID = 'guild';
 
@@ -109,5 +109,17 @@ describe('linkReferences', () => {
             'Try #unknown-channel, #unknown-channel, @someone or @someone'
         );
         expect(linkReferences('Read <#300000000000000002>', VEX_AND_MOD).text).toBe('Read <#300000000000000002>');
+    });
+});
+
+describe('unlinkReferences', () => {
+    it('turns links back into the names the model writes, leaving code as posted', () => {
+        const guild = {
+            channels: { cache: new Map([['1', { name: 'rules' }]]) },
+            roles: { cache: new Map([['2', { name: 'Moderator' }]]) },
+            members: { cache: new Map([['3', { displayName: 'Kat' }]]) },
+        } as unknown as Guild;
+
+        expect(unlinkReferences('Read <#1>, ask <@&2> or <@3> — not `<#1>`. <#9>?', guild)).toBe('Read #rules, ask @Moderator or @Kat — not `<#1>`. #unknown-channel?');
     });
 });

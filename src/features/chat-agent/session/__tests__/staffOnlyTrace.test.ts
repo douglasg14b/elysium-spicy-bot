@@ -1,29 +1,27 @@
 import type { JSONValue, ModelMessage } from 'ai';
 import { describe, expect, it } from 'vitest';
-import { withoutStaffOnlyResults } from '../staffOnlyTrace';
+import { usesStaffOnlyTools } from '../staffOnlyTrace';
+import { withoutResult } from '../traceNotes';
 
-function toolTurn(toolName: string, value: JSONValue): ModelMessage {
-    return { role: 'tool', content: [{ type: 'tool-result', toolCallId: `call-${toolName}`, toolName, output: { type: 'json', value } }] };
+function call(toolName: string): ModelMessage {
+    return { role: 'assistant', content: [{ type: 'tool-call', toolCallId: `call-${toolName}`, toolName, input: {} }] };
 }
 
-describe('withoutStaffOnlyResults', () => {
-    it('keeps a staff-only result as a note, and where a read reached, but nothing that was read', () => {
-        const kept = withoutStaffOnlyResults([
-            toolTurn('readChannelMessages', { found: true, channel: '#ticket-0057-river', messages: [{ text: 'Damon DMed me' }], continueBefore: '500000000000000101' }),
-            toolTurn('findTickets', { found: true, tickets: [{ number: 57, reason: 'Unwanted DMs' }] }),
-            toolTurn('getBotFeature', { answered: true, setupHere: { botRules: 'secret' } }),
-            { role: 'assistant', content: 'Ticket 57: Damon, final warning.' },
-        ]);
-
-        expect(JSON.stringify(kept)).not.toMatch(/Damon DMed|Unwanted DMs|secret/);
-        expect(kept[0]).toMatchObject({
-            content: [{ output: { value: { channel: '#ticket-0057-river', continueBefore: '500000000000000101' } } }],
-        });
-        expect(kept[3]).toEqual({ role: 'assistant', content: 'Ticket 57: Damon, final warning.' });
+describe('usesStaffOnlyTools', () => {
+    it('finds a staff-only call anywhere in a trace, and nothing in one without', () => {
+        expect(usesStaffOnlyTools([call('getServerRules'), call('readChannelMessages'), { role: 'assistant', content: 'done' }])).toBe(true);
+        expect(usesStaffOnlyTools([call('getServerRules'), { role: 'assistant', content: 'done' }])).toBe(false);
     });
+});
 
-    it('leaves every other tool result as it was', () => {
-        const rules = toolTurn('getServerRules', { found: true, sources: [] });
-        expect(withoutStaffOnlyResults([rules])).toEqual([rules]);
+describe('withoutResult', () => {
+    it('keeps a result as a note, and where a read reached, but nothing that was read', () => {
+        const value: JSONValue = { found: true, channel: '#ticket-0057-river', messages: [{ text: 'Damon DMed me' }], continueBefore: '500000000000000101' };
+        const noted = withoutResult({ type: 'tool-result', toolCallId: 'call-1', toolName: 'readChannelMessages', output: { type: 'json', value } });
+
+        expect(noted.output).toEqual({
+            type: 'json',
+            value: { note: 'Not kept: call readChannelMessages again if you need it.', channel: '#ticket-0057-river', continueBefore: '500000000000000101' },
+        });
     });
 });

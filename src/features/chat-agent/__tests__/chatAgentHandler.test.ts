@@ -6,7 +6,10 @@ import type { TicketEntity } from '../../tickets';
 import { createPerGuildQueue } from '../../../shared/perGuildQueue';
 import { handleChatMessage, type ChatAgentDependencies } from '../chatAgentHandler';
 import { ChatRateLimiter } from '../safety/rateLimit';
-import { ChatSessionStore } from '../session/chatSessionStore';
+import type { DatabaseClient } from '../../../features-system/data-persistence/database';
+import { ChatSessionsRepo } from '../data/chatSessionsRepo';
+import { chatSessionsTestDb } from '../data/__tests__/support/chatSessionsTestDb';
+import { ChatSessions } from '../session/chatSessions';
 
 const tickets = vi.hoisted(() => ({ current: null as TicketEntity | null }));
 vi.mock('../../tickets', () => ({ getTicketByChannel: async () => tickets.current }));
@@ -25,10 +28,15 @@ vi.mock('../data/chatAgentConfigRepo', () => ({
 
 const AN_OPEN_TICKET = { id: 1, ticketNumber: 42, status: 'open' } as unknown as TicketEntity;
 
-beforeEach(() => {
+let sessionsDb: DatabaseClient;
+
+beforeEach(async () => {
     tickets.current = null;
     savedConfig.current = null;
+    sessionsDb = await chatSessionsTestDb();
 });
+
+const sessionsRepo = () => new ChatSessionsRepo(sessionsDb);
 
 const BOT_ID = '900000000000000001';
 const BOT_USER = { id: BOT_ID, displayName: 'BrattyBot' } as unknown as ClientUser;
@@ -63,7 +71,13 @@ function modelSaying(text: string, gate?: Promise<void>) {
     });
 }
 
-type FakeServer = { sent: unknown[]; replies: unknown[] };
+type FakeServer = { sent: unknown[]; replies: unknown[]; chatterSinceAnyPost: number };
+
+/** The `n`th message the fake channel makes, as a snowflake: ids order as Discord's do. */
+const snowflake = (n: number) => String(1_000_000 + n * 1_000);
+
+/** Vex's answer in each test: the mention is the first message, its reply the second. */
+const FIRST_REPLY = snowflake(2);
 
 type FakeServerApi = {
     /** A member's message that @s the bot. */
@@ -71,12 +85,12 @@ type FakeServerApi = {
     /** A member's message replying to `repliedTo` (a bot post), without naming the bot. */
     replyFrom: (userId: string, text: string, repliedTo: Message) => Message;
     /** A message the bot posted: a chat agent reply, or a plain automated post. */
-    botPost: (kind: 'chatAgent' | 'automated') => Message;
+    botPost: (kind: 'chatAgent' | 'automated', id?: string) => Message;
 };
 
 /** One channel, one bot. */
 function fakeServer(): FakeServer & FakeServerApi {
-    const server: FakeServer = { sent: [], replies: [] };
+    const server: FakeServer = { sent: [], replies: [], chatterSinceAnyPost: 0 };
     let nextId = 1;
     const allowEverything = { has: () => true };
     const me = { id: BOT_ID, displayName: 'BrattyBot' };
@@ -94,7 +108,7 @@ function fakeServer(): FakeServer & FakeServerApi {
         sendTyping: async () => undefined,
         send: async (options: unknown) => {
             server.sent.push(options);
-            return { id: `posted-${nextId++}` };
+            return { id: snowflake(nextId++) };
         },
         messages: { fetch: async () => new Collection<string, Message>() },
     };
@@ -102,9 +116,11 @@ function fakeServer(): FakeServer & FakeServerApi {
 
     const messageFrom = (userId: string, content: string, repliedTo: Message | null): Message => {
         // Nobody here is staff: the staff-only tools stay shut and turns keep the short limits.
-        const member = { id: userId, displayName: userId, guild, permissions: { has: () => false }, roles: { cache: new Map() } };
+        const member = { id: userId, displayName: userId, guild, user: { bot: false }, permissions: { has: () => false }, roles: { cache: new Map() } };
+        // Everyone who has spoken can read the channel.
+        guild.members.cache.set(userId, member);
         const message = {
-            id: `incoming-${nextId++}`,
+            id: snowflake(nextId++),
             content,
             system: false,
             type: repliedTo ? MessageType.Reply : MessageType.Default,
@@ -128,20 +144,24 @@ function fakeServer(): FakeServer & FakeServerApi {
             inGuild: () => true,
             reply: async (options: unknown) => {
                 server.replies.push(options);
-                return { id: `posted-${nextId++}` };
+                return { id: snowflake(nextId++) };
             },
         };
-        channel.messages.fetch = async () => new Collection([[message.id, message as unknown as Message]]);
+        // The channel's newest message is the latest one made; a read after any post finds the chatter since.
+        channel.messages.fetch = async (options?: { after?: string }) =>
+            options?.after
+                ? new Collection(Array.from({ length: server.chatterSinceAnyPost }, (_unused, index) => [String(1_000_000 + index), { id: String(1_000_000 + index), author: { id: 'someone' } } as unknown as Message]))
+                : new Collection([[message.id, message as unknown as Message]]);
         return message as unknown as Message;
     };
 
     const mentionFrom = (userId: string, text: string) => messageFrom(userId, `<@${BOT_ID}> ${text}`, null);
     const replyFrom = (userId: string, text: string, repliedTo: Message) => messageFrom(userId, text, repliedTo);
-    const botPost = (kind: 'chatAgent' | 'automated'): Message => {
+    const botPost = (kind: 'chatAgent' | 'automated', id?: string): Message => {
         // A chat agent post answers a message that @'d the bot; an automated one answers nothing.
         const answered = kind === 'chatAgent' ? mentionFrom('someone', 'question') : null;
         return {
-            id: `bot-post-${nextId++}`,
+            id: id ?? snowflake(nextId++),
             author: { id: BOT_ID, bot: true },
             type: kind === 'chatAgent' ? MessageType.Reply : MessageType.Default,
             reference: answered ? { messageId: answered.id } : null,
@@ -154,7 +174,7 @@ function fakeServer(): FakeServer & FakeServerApi {
 
 function dependencies(model: MockLanguageModelV4): ChatAgentDependencies {
     return {
-        sessions: new ChatSessionStore(),
+        sessions: new ChatSessions(sessionsRepo()),
         channelQueue: createPerGuildQueue(),
         pendingTurns: new Map(),
         rateLimiter: new ChatRateLimiter(),
@@ -163,7 +183,7 @@ function dependencies(model: MockLanguageModelV4): ChatAgentDependencies {
 }
 
 describe('handleChatMessage', () => {
-    it('replies without letting the model ping anyone, posts made-up markup as text, and remembers the turn under its asker', async () => {
+    it('replies without letting the model ping anyone, posts made-up markup as text, and starts a session with the turn', async () => {
         const server = fakeServer();
         const deps = dependencies(modelSaying('@everyone look, <@&123> too. Hi.'));
 
@@ -176,34 +196,67 @@ describe('handleChatMessage', () => {
                 failIfNotExists: false,
             },
         ]);
-        // incoming-1 was the mention; its reply posted as posted-2.
-        expect(deps.sessions.traceLookup('channel')('posted-2')).toMatchObject({ askerId: 'vex' });
+        const session = await sessionsRepo().findByPost('guild', FIRST_REPLY);
+        expect(session).toMatchObject({ channelId: 'channel', lastPostId: FIRST_REPLY });
+        expect(await sessionsRepo().listTurns(session?.id ?? '')).toEqual([
+            expect.objectContaining({
+                askerId: 'vex',
+                questionId: snowflake(1),
+                question: '[2026-11-06 21:04] vex: @someone hi',
+                answer: '@everyone look, @someone too. Hi.',
+                model: 'mock-model-id',
+                readerIds: ['vex'],
+                visibleChannelIds: ['channel'],
+                messages: [{ role: 'assistant', content: [{ type: 'text', text: '@everyone look, @someone too. Hi.' }] }],
+                postIds: [FIRST_REPLY],
+            }),
+        ]);
     });
 
-    it("remembers a staff-only tool's answer only as a note, so a follow-up has to ask it again", async () => {
+    it("hands the next turn in the channel what this one looked up, whoever asks it", async () => {
         const server = fakeServer();
+        // Mara has spoken here, so she reads Vex's answer too.
+        server.mentionFrom('mara', 'hey');
         let call = 0;
         const model = new MockLanguageModelV4({
             doGenerate: async () => {
                 call += 1;
                 return call === 1
                     ? {
-                          content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'findTickets', input: '{"query":"57"}' }],
+                          content: [{ type: 'tool-call', toolCallId: 'call-1', toolName: 'getTicketInfo', input: '{}' }],
                           finishReason: { unified: 'tool-calls', raw: undefined },
                           usage: USAGE,
                           warnings: [],
                       }
-                    : { content: [{ type: 'text', text: 'Not yours to read.' }], finishReason: { unified: 'stop', raw: undefined }, usage: USAGE, warnings: [] };
+                    : { content: [{ type: 'text', text: 'Not a ticket.' }], finishReason: { unified: 'stop', raw: undefined }, usage: USAGE, warnings: [] };
             },
         });
         const deps = dependencies(model);
 
-        await handleChatMessage(server.mentionFrom('vex', 'what was ticket 57?'), BOT_USER, deps);
+        await handleChatMessage(server.mentionFrom('vex', 'is this a ticket?'), BOT_USER, deps);
+        await handleChatMessage(server.mentionFrom('mara', 'wait, is it?'), BOT_USER, deps);
 
-        const trace = deps.sessions.traceLookup('channel')('posted-2');
-        expect(JSON.stringify(trace)).toContain('Not kept between turns');
-        // What the tool answered this turn (Vex isn't staff) is not what the session keeps.
-        expect(JSON.stringify(trace)).not.toContain('pay grade');
+        // Vex's reply has left the window the fake channel holds, so the session puts it first.
+        const followUp = JSON.stringify(model.doGenerateCalls.at(-1)?.prompt);
+        expect(followUp).toContain('vex: @someone is this a ticket?');
+        expect(followUp).toContain('"toolName":"getTicketInfo","output":{"type":"json","value":{"isTicket":false}}');
+        expect(followUp).toContain('Not a ticket.');
+        expect(followUp).toContain('mara: @someone wait, is it?');
+    });
+
+    it("starts afresh once the channel has moved on, but a reply to the old session's post carries it on", async () => {
+        const server = fakeServer();
+        const model = modelSaying('Rule three.');
+        const deps = dependencies(model);
+        await handleChatMessage(server.mentionFrom('vex', 'can I DM people?'), BOT_USER, deps);
+        // Then the channel talks among itself.
+        server.chatterSinceAnyPost = 60;
+
+        await handleChatMessage(server.mentionFrom('mara', 'what did you tell vex?'), BOT_USER, deps);
+        expect(JSON.stringify(model.doGenerateCalls.at(-1)?.prompt)).not.toContain('can I DM people?');
+
+        await handleChatMessage(server.replyFrom('mara', 'what did you tell vex?', server.botPost('chatAgent', FIRST_REPLY)), BOT_USER, deps);
+        expect(JSON.stringify(model.doGenerateCalls.at(-1)?.prompt)).toContain('vex: @someone can I DM people?');
     });
 
     it('turns the #channel the model names into a link before posting', async () => {
