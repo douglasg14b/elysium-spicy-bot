@@ -21,6 +21,7 @@ import {
     IconTrendingUp,
     IconTicket,
     IconFlame,
+    IconMessageChatbot,
     IconCake,
     IconBolt,
     IconCheck,
@@ -52,6 +53,7 @@ const NAV: NavEntry[] = [
     { label: 'Leveling', to: '/leveling', icon: <IconTrendingUp size={18} /> },
     { label: 'Tickets', to: '/tickets', icon: <IconTicket size={18} /> },
     { label: 'Flash Chat', to: '/flash-chat', icon: <IconFlame size={18} />, isNew: true },
+    { label: 'Chat Agent', to: '/chat-agent', icon: <IconMessageChatbot size={18} />, isNew: true },
     { label: 'Birthdays', to: '/birthdays', icon: <IconCake size={18} /> },
     { label: 'Flows', to: '/flows', icon: <IconBolt size={18} />, isNew: true },
     // Beside Flows because flows are what use the pictures; it is where a full server makes room.

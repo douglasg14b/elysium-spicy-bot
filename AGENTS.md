@@ -14,7 +14,7 @@ The bot is aimed at an **adults-only** Discord: **kinky**, **sex-positive**, **N
 | Discord            | discord.js, CommandKit for slash scaffolding where used                                                              |
 | DB                 | Kysely + **sqlite** (`better-sqlite3`) or **postgres** (`pg`); dialect from `DB_TYPE`                                |
 | Validation / types | Zod; `@eicode/result-pattern` for Result-style flows                                                                 |
-| AI                 | OpenAI SDK, `@openai/agents`, `@openai/guardrails`                                                                   |
+| AI                 | Vercel AI SDK (`ai`) + `@openrouter/ai-sdk-provider` (chat agent); OpenAI SDK, `@openai/agents`, `@openai/guardrails` (legacy `ai-reply`) |
 | Config             | `env-var` in `src/environment.ts`; local dev: `.env.local` via `@dotenvx/dotenvx` (`pnpm dev`, `migrate:latest:dev`) |
 | Tests              | Vitest, `**/*.test.ts`                                                                                               |
 
@@ -48,7 +48,7 @@ The bot is aimed at an **adults-only** Discord: **kinky**, **sex-positive**, **N
 - `github-plan-cli/` — GitHub “Jarvis” plan + implement automation (`pnpm github-plan`, workflows `jarvis-plan.yml` / `jarvis-implement.yml`). **Local** implement: Cursor agent + `implementer-generic.md` → `pr-draft.json`. **CI** (`GITHUB_ACTIONS` is the string `true`): Node orchestrates Cursor agents via prompts in `github-plan-cli/prompts/` (no separate CI implementer under `.cursor/agents/`); structured reports under gitignored `.jarvis/ci/` (`implement-report.json`, `review-aggregate.json`, `review-feedback.md`); schemas and helpers in `github-plan-cli/src/plan/ciImplementArtifacts.ts`. Tests under `github-plan-cli/__tests__/`.
 - `infra/` — Pulumi program for the Cloudflare edge: the tunnel publishing the dashboard at `brattybot.fettra.app`, and its DNS record. The `cloudflared` sidecar in `docker-compose.prod.yml` connects with its token. Run from a workstation (dockerignored); `infra/README.md` is the runbook, including the WAF rules set by hand.
 
-**Features (code):** `ai-reply`, `birthday-tracker`, `flash-chat`, `tickets`. **`voice-chat-engager`** is placeholder (`readme.md` only).
+**Features (code):** `chat-agent`, `ai-reply` (only `aiService` for birthday announcements is still live), `birthday-tracker`, `flash-chat`, `tickets`. **`voice-chat-engager`** is placeholder (`readme.md` only).
 
 ## Feature folder conventions
 
@@ -72,7 +72,9 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 **`flash-chat` extras:** `flashChatManager` / `flashChatService`, `configComponents/` for setup UI, `initFlashChat` runs after ready (not at module load).
 
-**`ai-reply` layout:** Listener-based (no slash registry). Subfolders by concern: `agents/` (OpenAI agent graph), `antiAbuse/`, `lib/` (e.g. guardrails); flat files for orchestration (`aiReplyHandler.ts`, `newAiReplyStuff.ts`, `aiService.ts`, `messageUtils.ts`).
+**`chat-agent` layout:** Listener-based (`initChatAgent` from `bot.ts`, one `MessageCreate` listener) — answers mentions and replies to the bot with a Vercel AI SDK `ToolLoopAgent` on OpenRouter. Subfolders by stage of a turn: `trigger/`, `safety/`, `session/`, `agent/`, `tools/` (read-only, bound to the turn's server/channel/asker; every channel revealed through `tools/visibleChannels.ts`, checked against everyone who will read the answer — the asker and everyone who can see the channel it lands in), `output/`, and `data/` (`chat_agent_config`: each server's context channels, and the admins' bot rules and server notes that go into every turn's instructions, set on the dashboard's Chat Agent page through `GET`/`PUT /api/guilds/{guildId}/config/chat-agent`). `src/features/chat-agent/readme.md` walks one turn; `docs/plans/chat-agent-v2.md` has what comes next.
+
+**`ai-reply` layout (being retired — its listener is no longer wired):** Listener-based (no slash registry). Subfolders by concern: `agents/` (OpenAI agent graph), `antiAbuse/`, `lib/` (e.g. guardrails); flat files for orchestration (`aiReplyHandler.ts`, `newAiReplyStuff.ts`, `aiService.ts`, `messageUtils.ts`).
 
 **New DB table:** add table type to `src/features-system/data-persistence/database.ts`, feature schema file, migration under `migrations/`, run `pnpm migrate:latest` (or `:dev`).
 
@@ -80,7 +82,7 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 
 ## Env (required unless noted)
 
-`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug), `AI_MAX_CONTEXT_MESSAGES`. The dashboard starts only when `WEB_PUBLIC_URL`, `DISCORD_OAUTH_CLIENT_SECRET` and `SESSION_SECRET` are all set (production's are listed in `infra/README.md`); a `SESSION_SECRET` under 32 characters, or the development placeholder outside `ENV=development`, counts as unset. Who may use it: a server's owner or its Administrators (`src/web/api/guildAccess.ts`; Manage Server alone does not qualify). Optional `ALLOWED_GUILD_IDS` (comma-separated) bounds the bot to those servers: a server that newly adds it and is not listed is left, servers it is already in at startup are only logged (never left), and the dashboard treats an unlisted server as not there — superusers (`ADMIN_DISCORD_IDS`) included. Unset means every server, announced at startup (`src/features-system/guild-allowlist/`).
+`DISCORD_APP_ID`, `DISCORD_BOT_TOKEN`, `DB_TYPE` (`sqlite` \| `postgres`), `OPENROUTER_API_KEY` (reply generation), `OPENAI_API_KEY` (guardrails only); plus `SQLITE_DB_PATH` or `PG_CONNECTION_STRING` per `DB_TYPE`. Optional: `ENV`, `OPENROUTER_BASE_URL`, `AI_MODEL` (OpenRouter slug, birthday announcements), `CHAT_AGENT_MODEL` (OpenRouter slug for the chat agent, default `mistralai/mistral-large-4-0`; why in `docs/chat-agent-model-evaluation.md`), `AI_MAX_CONTEXT_MESSAGES`. The dashboard starts only when `WEB_PUBLIC_URL`, `DISCORD_OAUTH_CLIENT_SECRET` and `SESSION_SECRET` are all set (production's are listed in `infra/README.md`); a `SESSION_SECRET` under 32 characters, or the development placeholder outside `ENV=development`, counts as unset. Who may use it: a server's owner or its Administrators (`src/web/api/guildAccess.ts`; Manage Server alone does not qualify). Optional `ALLOWED_GUILD_IDS` (comma-separated) bounds the bot to those servers: a server that newly adds it and is not listed is left, servers it is already in at startup are only logged (never left), and the dashboard treats an unlisted server as not there — superusers (`ADMIN_DISCORD_IDS`) included. Unset means every server, announced at startup (`src/features-system/guild-allowlist/`).
 
 ## Commands
 
@@ -89,6 +91,7 @@ Each feature lives under `src/features/<kebab-name>/`. Expect this shape; add su
 - `pnpm build` — `sdk:generate`, then `tsc --noEmit`. The Jarvis implement runner runs it (Node 22), and it commits the spec and SDK that `build` rewrites. Needs Node ≥ 22.18 for the generation step. Docker never runs it: the image (Node 20) runs `pnpm build:web` and the committed spec and SDK.
 - `pnpm start` — run the bot from source with `tsx`. `src/scripts/dockerEntrypoint.sh` is the real container entrypoint: it applies migrations first, then `exec pnpm start`. Block discovery scans `src/features/flows/blocks/` for `index.ts` files, so the source tree is the one that runs — which is why `tsx` is a runtime dependency.
 - `pnpm migrate:latest` / `migrate:latest:dev` — DB migrations.
+- `pnpm chat-agent:eval` — scored evals of the chat agent (behaviour + LLM-judged tone against per-scenario brattiness bands; `--model`, `--persona current,v1`, `--runs`); needs only `OPENROUTER_API_KEY`. `pnpm chat-agent:try` / `chat-agent:try-live` — put the chat agent through scenarios on one or more OpenRouter models (`--model a,b`; needs only `OPENROUTER_API_KEY`), or one question against a real server (full env). Agents never open `.env.local` (`.claude/rules/never-read-env-local.md`).
 - `pnpm github-plan` — CLI for the Jarvis issue/PR plan workflow (see `github-plan-cli/src/cli.ts`).
 - `pnpm sdk:generate` — re-emit the OpenAPI spec and regenerate `packages/web-sdk/src/gen` from it. `build` and `dev` run it; run it yourself after changing a route mid-session. `openApiSpec.test.ts` (spec vs routes) and `generatedSdkIsCurrent.test.ts` (SDK vs spec) fail until you do. (`pnpm openapi:emit` writes the spec alone — not enough on its own.) Needs Node ≥ 22.18.
 - `pnpm sdk:check` — `sdk:generate`, then fail if the spec or the SDK differs from what is committed (untracked files included).

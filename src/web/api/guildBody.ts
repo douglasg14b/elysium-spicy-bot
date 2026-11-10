@@ -203,6 +203,29 @@ export const WarningsConfigSchema = z
 
 export type WarningsConfigBody = z.infer<typeof WarningsConfigSchema>;
 
+/** One of the chat agent's context channels, with its name resolved for display — null once it is gone. */
+const ChatAgentContextChannelSchema = z
+    .object({
+        channelId: z.string(),
+        isRules: z.boolean(),
+        channelName: z.string().nullable(),
+    })
+    .openapi('ChatAgentContextChannel');
+
+/**
+ * The chat agent's config: the channels it may read for context, in saved order (empty when
+ * none are set), and the admins' rules for it and notes about the server (empty when unwritten).
+ */
+export const ChatAgentConfigSchema = z
+    .object({
+        contextChannels: z.array(ChatAgentContextChannelSchema),
+        botRules: z.string(),
+        serverNotes: z.string(),
+    })
+    .openapi('ChatAgentConfig');
+
+export type ChatAgentConfigBody = z.infer<typeof ChatAgentConfigSchema>;
+
 /**
  * Server-wide settings owned by no single feature. Today: staff roles and the time zone.
  *

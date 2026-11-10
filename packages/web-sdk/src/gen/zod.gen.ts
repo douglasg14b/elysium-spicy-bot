@@ -197,6 +197,27 @@ export const zButtonListener = z.object({
     nodeId: z.string()
 });
 
+export const zChatAgentConfigUpdate = z.object({
+    botRules: z.string().max(2000, 'Keep the rules to 2,000 characters — I read them before every reply.'),
+    contextChannels: z.array(z.object({
+        channelId: z.string().regex(/^\d{17,20}$/, 'That\'s not a channel id. Pick one from the list.'),
+        isRules: z.boolean()
+    })).max(10, '10 context channels is my limit. Drop one.'),
+    serverNotes: z.string().max(2000, 'Keep the notes to 2,000 characters — I read them before every reply.')
+});
+
+export const zChatAgentContextChannel = z.object({
+    channelId: z.string(),
+    channelName: z.string().nullable(),
+    isRules: z.boolean()
+});
+
+export const zChatAgentConfig = z.object({
+    botRules: z.string(),
+    contextChannels: z.array(zChatAgentContextChannel),
+    serverNotes: z.string()
+});
+
 /**
  * A band of members by XP within this server, least to most active. `topOnePercent` is a spotlight inside `topQuarter`, not a fifth band, so the counts do not sum.
  */
@@ -2072,6 +2093,26 @@ export const zGetGuildChannelsPath = z.object({
 export const zGetGuildChannelsResponse = z.object({
     channels: z.array(zGuildChannel)
 });
+
+export const zGetChatAgentConfigPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The chat agent config.
+ */
+export const zGetChatAgentConfigResponse = zChatAgentConfig;
+
+export const zUpdateChatAgentConfigBody = zChatAgentConfigUpdate;
+
+export const zUpdateChatAgentConfigPath = z.object({
+    guildId: z.string()
+});
+
+/**
+ * The chat agent config as saved.
+ */
+export const zUpdateChatAgentConfigResponse = zChatAgentConfig;
 
 export const zGetTicketsConfigPath = z.object({
     guildId: z.string()

@@ -7,6 +7,7 @@ import { BotIdentityProvider } from './brand/BotIdentityContext';
 import { GuildProvider } from './guilds/GuildContext';
 import { DashboardLayout } from './layout/DashboardLayout';
 import { LoginPage } from './pages/LoginPage';
+import { ChatAgentConfigPage } from './pages/ChatAgentConfigPage';
 import { WarningsConfigPage } from './pages/WarningsConfigPage';
 import { WarningsListPage } from './pages/WarningsListPage';
 import { ComingSoonPage } from './pages/ComingSoonPage';
@@ -106,6 +107,7 @@ function AuthGate() {
                     <Route path="/tickets/config" element={<TicketsConfigPage />} />
                     <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
                     <Route path="/flash-chat" element={<FlashChatPage />} />
+                    <Route path="/chat-agent" element={<ChatAgentConfigPage />} />
                     <Route
                         path="/birthdays"
                         element={

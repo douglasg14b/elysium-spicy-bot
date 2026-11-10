@@ -41,6 +41,9 @@ const EXPECTED_BUDGET: Readonly<Record<string, RateBudget>> = {
     getGuildSettings: 'general',
     updateGuildSettings: 'discord',
     updateGuildTimeZone: 'discord',
+    // Chat agent. The PUT checks channels against the cache only; a write, like the rest.
+    getChatAgentConfig: 'general',
+    updateChatAgentConfig: 'discord',
     // Journeys. Drift fetches every channel, the inventory every posted message; both
     // resource autosave targets are typing.
     listJourneys: 'general',

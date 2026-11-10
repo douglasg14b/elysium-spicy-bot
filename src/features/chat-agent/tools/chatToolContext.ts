@@ -1,0 +1,60 @@
+import type { Guild, GuildMember, GuildTextBasedChannel } from 'discord.js';
+import { getTicketByChannel, type TicketEntity } from '../../tickets';
+import { chatAgentConfigRepo } from '../data/chatAgentConfigRepo';
+import type { ContextChannel } from '../data/chatAgentConfigSchema';
+import { everyoneCanReadHistory, viewersOf, type Viewers } from './visibleChannels';
+
+/**
+ * Everything a tool may act within for one turn, and what the turn's instructions need (the admins' rules and notes). Tools close over it rather than taking
+ * any of it from the model, so the model can only ask about this server, and only what
+ * everyone who will read the answer could see.
+ */
+export type ChatToolContext = {
+    readonly guild: Guild;
+    /** Where the conversation is happening. */
+    readonly channel: GuildTextBasedChannel;
+    /** Who spoke to the bot. */
+    readonly asker: GuildMember;
+    /** The asker and everyone else who can see `channel`: every channel-revealing tool sees only what all of them can. */
+    readonly viewers: Viewers;
+    /** Whether every viewer may read this channel's history; when not, the agent reads none of it for them. */
+    readonly viewersCanReadHistory: boolean;
+    /** The ticket this channel is, or null when it is not one (or the ticket is deleted). */
+    readonly ticket: TicketEntity | null;
+    /** The server's configured context channels, as saved — unchecked against the asker; every read is. */
+    readonly contextChannels: readonly ContextChannel[];
+    /** The admins' facts about the server, for the instructions; empty when none. */
+    readonly serverNotes: string;
+    /** The admins' rules for the agent on this server, for the instructions; empty when none. */
+    readonly botRules: string;
+};
+
+/** The ticket `channelId` is, unless it is deleted; null when it is not a ticket. */
+export async function findLiveTicket(channelId: string): Promise<TicketEntity | null> {
+    const ticket = await getTicketByChannel(channelId);
+    return ticket && ticket.status !== 'deleted' ? ticket : null;
+}
+
+/**
+ * The context for a turn in `channel` asked by `asker`. The one place these facts are
+ * derived; the server's chat agent config is read here, once per turn.
+ */
+export async function buildChatToolContext(
+    channel: GuildTextBasedChannel,
+    asker: GuildMember,
+    ticket: TicketEntity | null
+): Promise<ChatToolContext> {
+    const viewers = viewersOf(channel, asker);
+    const config = await chatAgentConfigRepo.getConfig(channel.guild.id);
+    return {
+        guild: channel.guild,
+        channel,
+        asker,
+        viewers,
+        viewersCanReadHistory: everyoneCanReadHistory(viewers, channel),
+        ticket,
+        contextChannels: config.contextChannels,
+        serverNotes: config.serverNotes,
+        botRules: config.botRules,
+    };
+}

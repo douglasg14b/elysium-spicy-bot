@@ -5,6 +5,9 @@ import {
     guildSettingsRepo,
     storableTimeZone,
 } from '../../features-system/guild-settings';
+import { chatAgentConfigRepo } from '../../features/chat-agent/data/chatAgentConfigRepo';
+import { MAX_CONTEXT_CHANNELS, MAX_GUIDANCE_LENGTH, type ChatAgentConfig } from '../../features/chat-agent/data/chatAgentConfigSchema';
+import { saveChatAgentConfig } from '../../features/chat-agent/logic/saveChatAgentConfig';
 import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
 import { loadGuildOwnership, serverEmojiIds } from '../../features/provisioning';
 import { warningsConfigRepo } from '../../features/warnings/data/warningsConfigRepo';
@@ -13,6 +16,7 @@ import { describeRefusedRoles, isAssignableRole } from '../../utils/isAssignable
 import type { AppEnv } from '../types';
 import { accessibleGuilds } from './guildAccess';
 import {
+    ChatAgentConfigSchema,
     GuildChannelSchema,
     guildChannelBodies,
     GuildEmojiSchema,
@@ -24,6 +28,7 @@ import {
     ROLE_ID_MAX_LENGTH,
     ROLE_LIST_MAX,
     WarningsConfigSchema,
+    type ChatAgentConfigBody,
     type GuildEmojiBody,
     type GuildRoleBody,
     type ManagedRoleBody,
@@ -64,6 +69,27 @@ const WarningsConfigUpdateSchema = z
             .regex(/^(\d{17,20})?$/, "That's not a channel id. Pick one from the list."),
     })
     .openapi('WarningsConfigUpdate');
+
+/**
+ * The chat agent's config, written whole: its context channels, and the admins' rules for it
+ * and notes about the server. Whether each channel is a text channel of *this* guild the bot
+ * can read, and listed once, is asked by `saveChatAgentConfig` against the guild's channel
+ * cache — Zod cannot see Discord.
+ */
+const ChatAgentConfigUpdateSchema = z
+    .object({
+        contextChannels: z
+            .array(
+                z.object({
+                    channelId: z.string().regex(/^\d{17,20}$/, "That's not a channel id. Pick one from the list."),
+                    isRules: z.boolean(),
+                })
+            )
+            .max(MAX_CONTEXT_CHANNELS, `${MAX_CONTEXT_CHANNELS} context channels is my limit. Drop one.`),
+        botRules: z.string().trim().max(MAX_GUIDANCE_LENGTH, `Keep the rules to ${MAX_GUIDANCE_LENGTH.toLocaleString('en-US')} characters — I read them before every reply.`),
+        serverNotes: z.string().trim().max(MAX_GUIDANCE_LENGTH, `Keep the notes to ${MAX_GUIDANCE_LENGTH.toLocaleString('en-US')} characters — I read them before every reply.`),
+    })
+    .openapi('ChatAgentConfigUpdate');
 
 /**
  * Staff roles arrive as a list of ids, and an **empty list is legal**: it is how an
@@ -183,6 +209,32 @@ const updateWarningsConfigRoute = createRoute({
     request: { params: GuildPathSchema, body: jsonBody(WarningsConfigUpdateSchema) },
     responses: {
         200: jsonResponse('The warnings config as saved.', WarningsConfigSchema),
+        ...GUILD_SCOPED_BODY_ERRORS,
+    },
+});
+
+const getChatAgentConfigRoute = createRoute({
+    method: 'get',
+    path: '/{guildId}/config/chat-agent',
+    operationId: 'getChatAgentConfig',
+    tags: ['guilds'],
+    summary: "The chat agent's context channels, rules and notes",
+    request: { params: GuildPathSchema },
+    responses: {
+        200: jsonResponse('The chat agent config.', ChatAgentConfigSchema),
+        ...GUILD_SCOPED_ERRORS,
+    },
+});
+
+const updateChatAgentConfigRoute = createRoute({
+    method: 'put',
+    path: '/{guildId}/config/chat-agent',
+    operationId: 'updateChatAgentConfig',
+    tags: ['guilds'],
+    summary: "Replace the chat agent's context channels, rules and notes",
+    request: { params: GuildPathSchema, body: jsonBody(ChatAgentConfigUpdateSchema) },
+    responses: {
+        200: jsonResponse('The chat agent config as saved.', ChatAgentConfigSchema),
         ...GUILD_SCOPED_BODY_ERRORS,
     },
 });
@@ -341,6 +393,22 @@ export function guildRoutes(): OpenAPIHono<AppEnv> {
             return c.json(resolveWarningsConfig(guild, result.config.modChannelId), 200);
         });
 
+        // The chat agent's config, each context channel with its name resolved for display.
+        router.openapi(getChatAgentConfigRoute, async (c) => {
+            const guild = c.get('guild');
+            return c.json(resolveChatAgentConfig(guild, await chatAgentConfigRepo.getConfig(guild.id)), 200);
+        });
+
+        // Replace the chat agent's config. Validated and stored by `saveChatAgentConfig`.
+        router.openapi(updateChatAgentConfigRoute, async (c) => {
+            const guild = c.get('guild');
+            const result = await saveChatAgentConfig(guild, c.req.valid('json'));
+            if (!result.ok) {
+                return c.json({ error: result.message }, 400);
+            }
+            return c.json(resolveChatAgentConfig(guild, result.config), 200);
+        });
+
         // Guild-wide settings owned by no single feature. Today: staff roles and time zone.
         router.openapi(getGuildSettingsRoute, async (c) => {
             const guild = c.get('guild');
@@ -458,4 +526,17 @@ function resolveWarningsConfig(guild: Guild, modChannelId: string | null): Warni
         ? guild.channels.cache.get(modChannelId)?.name ?? null
         : null;
     return { modChannelId, modChannelName };
+}
+
+/** The wire shape for the chat agent config: each channel as saved, plus its name while it exists; the texts as saved. */
+function resolveChatAgentConfig(guild: Guild, config: ChatAgentConfig): ChatAgentConfigBody {
+    return {
+        contextChannels: config.contextChannels.map(({ channelId, isRules }) => ({
+            channelId,
+            isRules,
+            channelName: guild.channels.cache.get(channelId)?.name ?? null,
+        })),
+        botRules: config.botRules,
+        serverNotes: config.serverNotes,
+    };
 }

@@ -25,6 +25,9 @@ export const OPENAI_API_KEY = getString('OPENAI_API_KEY');
 // Model slug as understood by OpenRouter (provider-prefixed, e.g. "openai/gpt-5.1-chat-latest").
 export const AI_MODEL = getStringOptional('AI_MODEL') || 'openai/gpt-5.1-chat-latest';
 export const AI_MAX_CONTEXT_MESSAGES = env.get('AI_MAX_CONTEXT_MESSAGES').asIntPositive() || 50;
+// The chat agent (src/features/chat-agent): an OpenRouter model slug for the tool-calling
+// agent that answers mentions and replies. Overridable per run to compare models.
+export const CHAT_AGENT_MODEL = getStringOptional('CHAT_AGENT_MODEL') || 'mistralai/mistral-large-4-0';
 // ---------------------------------------------------------------------------
 // Web dashboard (optional). See docs/adr/0001-web-server-in-bot-process.md.
 // The web server runs in-process with the bot. Every var here is OPTIONAL: if the
