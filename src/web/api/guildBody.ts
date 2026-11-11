@@ -214,15 +214,27 @@ const ChatAgentContextChannelSchema = z
 
 /**
  * The chat agent's config: the channels it may read for context, in saved order (empty when
- * none are set), and the admins' rules for it and notes about the server (empty when unwritten).
+ * none are set), the admins' rules for it and notes about the server (empty when unwritten),
+ * its own staff roles, and the intros channel it keeps a copy of.
  */
 export const ChatAgentConfigSchema = z
     .object({
         contextChannels: z.array(ChatAgentContextChannelSchema),
         botRules: z.string(),
         serverNotes: z.string(),
+        staffRoleIds: z.array(z.string()),
+        staffRoles: z.array(z.object({ id: z.string(), name: z.string() })),
+        introsChannelId: z.union([z.string(), z.null()]),
+        introsChannelName: z.union([z.string(), z.null()]),
     })
-    .openapi('ChatAgentConfig');
+    .openapi('ChatAgentConfig', {
+        description:
+            "The chat agent's config. `staffRoleIds` are the roles whose members count as staff for its staff-only answers " +
+            "(the owner and Administrators always do); empty means it uses Server Settings' staff roles. `staffRoles` names " +
+            'the ids that still resolve to a role and can be shorter, as on Server Settings: render from `staffRoleIds`, label ' +
+            'from `staffRoles`. `introsChannelId` is the channel members introduce themselves in, null when none; ' +
+            '`introsChannelName` is its name, null once it is gone.',
+    });
 
 export type ChatAgentConfigBody = z.infer<typeof ChatAgentConfigSchema>;
 

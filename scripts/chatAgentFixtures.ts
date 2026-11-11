@@ -16,6 +16,7 @@ import type { FeatureSetup } from '../src/features/chat-agent/tools/featureSetup
 import type { PagedMessage } from '../src/features/chat-agent/tools/channelHistoryTools';
 import type { FoundTicket } from '../src/features/chat-agent/tools/ticketTools';
 import { STAFF_ONLY_REFUSALS, type StaffHelpAccess } from '../src/features/chat-agent/tools/staffAccess';
+import { LEVEL_REFUSALS } from '../src/features/chat-agent/tools/memberTools';
 import { matchChannel } from '../src/features/chat-agent/tools/visibleChannels';
 import { parseMessageLink } from '../src/features/chat-agent/tools/channelReferences';
 import type { TicketEntity } from '../src/features/tickets';
@@ -50,6 +51,13 @@ export const FIXTURE_CHANNELS = [
     { name: '#events', id: '100000000000000007', category: 'Meetups', topic: 'Munches, play parties, game nights.' },
     { name: '#tabletop', id: '100000000000000008', category: 'Nerd Stuff', topic: 'D&D, Pathfinder, and arguing about initiative.' },
 ];
+
+/** The asker's pronoun role: the instructions' facts name it, and `getMemberInfo` returns it. */
+const FIXTURE_ASKER_PRONOUNS = 'she/her';
+
+/** Mara's post in #introductions, which says they/them — the reply must not take "she" from the asker. */
+const FIXTURE_MARA_INTRO =
+    "Hi all! Mara, 34, they/them. Rope bottom learning to tie, forever DM for our Pathfinder table, and I'll talk your ear off about D&D. Find me at munches.";
 
 /** The made-up server's roles, as `getServerInfo` lists them. */
 const FIXTURE_ROLES = ['Owner', 'Moderator', 'Verified', 'Booster', 'DMs closed', 'Ask to DM', 'DMs open', 'Newcomer'];
@@ -152,12 +160,28 @@ function cannedResult(toolName: keyof ChatTools, input: unknown, inTicket: boole
                 username: 'vex_irl',
                 isBot: false,
                 joinedAt: '2026-10-30T18:12:00.000Z',
+                pronouns: [FIXTURE_ASKER_PRONOUNS],
                 boostingSince: null,
                 roles: inTicket ? ['Newcomer', 'Ask to DM'] : ['Verified', 'Ask to DM'],
             };
         case 'getUserLevel':
+            if (staffAccess !== 'allowed') return { answered: false, ...LEVEL_REFUSALS[staffAccess] };
             if (!isAsker(input)) return { found: false, note: `Nobody here matches "${String((input as { member?: string }).member)}".` };
             return { found: true, displayName: FIXTURE_ASKER_NAME, ...FIXTURE_FACTS.level, hasAnyActivity: true };
+        case 'getMemberIntro': {
+            const member = (input as { member?: string }).member?.trim().replace(/^@/, '').toLowerCase();
+            if (member === 'mara') {
+                return {
+                    found: true,
+                    displayName: 'Mara',
+                    hasIntro: true,
+                    channel: '#introductions',
+                    posts: [{ postedAt: '2026-09-02T19:40:00.000Z', text: FIXTURE_MARA_INTRO }],
+                };
+            }
+            if (!isAsker(input)) return { found: false, note: `Nobody here matches "${String((input as { member?: string }).member)}".` };
+            return { found: true, displayName: FIXTURE_ASKER_NAME, hasIntro: false, note: 'No intro from them in #introductions.' };
+        }
         case 'getTicketInfo':
             return inTicket
                 ? {
@@ -218,7 +242,14 @@ function fixtureGuild() {
             permissionsFor: () => everyoneSees,
         } as unknown as GuildBasedChannel)
     );
-    const asker = { id: FIXTURE_ASKER_ID, displayName: FIXTURE_ASKER_NAME, user: { username: 'vex_irl', bot: false }, guild };
+    const pronounRole = { id: '300000000000000099', name: FIXTURE_ASKER_PRONOUNS, position: 0 };
+    const asker = {
+        id: FIXTURE_ASKER_ID,
+        displayName: FIXTURE_ASKER_NAME,
+        user: { username: 'vex_irl', bot: false },
+        guild,
+        roles: { cache: new Map([[pronounRole.id, pronounRole]]) },
+    };
     guild.members.cache.set(asker.id, asker as unknown as GuildMember);
     guild.members.cache.set('200000000000000002', { id: '200000000000000002', displayName: 'Mara', user: { username: 'mara', bot: false }, guild } as unknown as GuildMember);
     FIXTURE_ROLES.forEach((name, index) => guild.roles.cache.set(`30000000000000000${index}`, { id: `30000000000000000${index}`, name, managed: false }));
@@ -263,6 +294,7 @@ export function fixtureContext(room: FixtureRoom, guidance: FixtureGuidance = {}
         serverNotes: guidance.serverNotes ?? '',
         botRules: guidance.botRules ?? '',
         staffRoleIds: [],
+        introsChannelId: null,
         ticket: inTicket ? ({ ticketNumber: 42 } as unknown as TicketEntity) : null,
     };
 }

@@ -41,6 +41,7 @@ import {
     ChatAgentSessionsTable,
     ChatAgentSessionTurnsTable,
 } from '../../features/chat-agent/data/chatSessionsSchema';
+import { ChatAgentIntrosTable } from '../../features/chat-agent/data/chatIntrosSchema';
 
 export interface Database {
     flash_chat_config: FlashChatConfigTable;
@@ -74,6 +75,7 @@ export interface Database {
     chat_agent_sessions: ChatAgentSessionsTable;
     chat_agent_session_turns: ChatAgentSessionTurnsTable;
     chat_agent_session_posts: ChatAgentSessionPostsTable;
+    chat_agent_intros: ChatAgentIntrosTable;
 }
 
 function getDbDialect() {
@@ -149,6 +151,8 @@ function getDatabaseClient() {
                 chat_agent_sessions: ['startedAt', 'lastActiveAt'],
                 chat_agent_session_turns: ['createdAt'],
                 // `chat_agent_session_posts` has no dates, booleans or JSON: in no plugin.
+                // No boolean or JSON columns, so absent from both sqlite-only plugins below.
+                chat_agent_intros: ['postedAt'],
         }),
     ];
 

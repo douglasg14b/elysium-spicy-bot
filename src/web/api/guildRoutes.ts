@@ -6,7 +6,12 @@ import {
     storableTimeZone,
 } from '../../features-system/guild-settings';
 import { chatAgentConfigRepo } from '../../features/chat-agent/data/chatAgentConfigRepo';
-import { MAX_CONTEXT_CHANNELS, MAX_GUIDANCE_LENGTH, type ChatAgentConfig } from '../../features/chat-agent/data/chatAgentConfigSchema';
+import {
+    MAX_CHAT_AGENT_STAFF_ROLES,
+    MAX_CONTEXT_CHANNELS,
+    MAX_GUIDANCE_LENGTH,
+    type ChatAgentConfig,
+} from '../../features/chat-agent/data/chatAgentConfigSchema';
 import { saveChatAgentConfig } from '../../features/chat-agent/logic/saveChatAgentConfig';
 import { reconcileGuildSchedules } from '../../features/flows/logic/reconcileGuildSchedules';
 import { loadGuildOwnership, serverEmojiIds } from '../../features/provisioning';
@@ -88,6 +93,16 @@ const ChatAgentConfigUpdateSchema = z
             .max(MAX_CONTEXT_CHANNELS, `${MAX_CONTEXT_CHANNELS} context channels is my limit. Drop one.`),
         botRules: z.string().trim().max(MAX_GUIDANCE_LENGTH, `Keep the rules to ${MAX_GUIDANCE_LENGTH.toLocaleString('en-US')} characters — I read them before every reply.`),
         serverNotes: z.string().trim().max(MAX_GUIDANCE_LENGTH, `Keep the notes to ${MAX_GUIDANCE_LENGTH.toLocaleString('en-US')} characters — I read them before every reply.`),
+        // An empty list is legal: it hands the agent back to Server Settings' staff roles.
+        staffRoleIds: z
+            .array(
+                z
+                    .string()
+                    .min(1, 'A staff role needs an id.')
+                    .max(ROLE_ID_MAX_LENGTH, "That's not a role id. Pick one from the list.")
+            )
+            .max(MAX_CHAT_AGENT_STAFF_ROLES, 'That is more staff roles than any server has. Trim the list.'),
+        introsChannelId: z.union([z.string().regex(/^\d{17,20}$/, "That's not a channel id. Pick one from the list."), z.null()]),
     })
     .openapi('ChatAgentConfigUpdate');
 
@@ -528,15 +543,22 @@ function resolveWarningsConfig(guild: Guild, modChannelId: string | null): Warni
     return { modChannelId, modChannelName };
 }
 
-/** The wire shape for the chat agent config: each channel as saved, plus its name while it exists; the texts as saved. */
+/**
+ * The wire shape for the chat agent config: each channel as saved, plus its name while it
+ * exists; the texts as saved; the staff roles as saved, named while they exist.
+ */
 function resolveChatAgentConfig(guild: Guild, config: ChatAgentConfig): ChatAgentConfigBody {
+    const channelName = (channelId: string) => guild.channels.cache.get(channelId)?.name ?? null;
     return {
-        contextChannels: config.contextChannels.map(({ channelId, isRules }) => ({
-            channelId,
-            isRules,
-            channelName: guild.channels.cache.get(channelId)?.name ?? null,
-        })),
+        contextChannels: config.contextChannels.map(({ channelId, isRules }) => ({ channelId, isRules, channelName: channelName(channelId) })),
         botRules: config.botRules,
         serverNotes: config.serverNotes,
+        staffRoleIds: [...config.staffRoleIds],
+        staffRoles: config.staffRoleIds.flatMap((roleId) => {
+            const role = guild.roles.cache.get(roleId);
+            return role ? [{ id: role.id, name: role.name }] : [];
+        }),
+        introsChannelId: config.introsChannelId,
+        introsChannelName: config.introsChannelId ? channelName(config.introsChannelId) : null,
     };
 }

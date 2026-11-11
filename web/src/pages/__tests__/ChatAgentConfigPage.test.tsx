@@ -12,13 +12,22 @@ const CONFIG_PATH = `/api/guilds/${GUILD_ID}/config/chat-agent`;
 const RULES = '100000000000000001';
 const KINK_101 = '100000000000000002';
 
-const NO_TEXTS = { botRules: '', serverNotes: '' };
+const INTROS = '100000000000000003';
+const MODERATOR = '300000000000000001';
+
+/** Everything but the channels, unset, as a save sends it. */
+const NO_TEXTS = { botRules: '', serverNotes: '', staffRoleIds: [], introsChannelId: null };
+/** The same as the GET answers it, names included. */
+const NOTHING_ELSE_SENT = { ...NO_TEXTS, staffRoles: [], introsChannelName: null };
 
 function serveGuild(
     api: FakeApi,
     contextChannels: readonly { channelId: string; isRules: boolean; channelName: string | null }[],
     texts: { botRules: string; serverNotes: string } = NO_TEXTS
 ) {
+    api.on('GET', `/api/guilds/${GUILD_ID}/roles`, () => ({
+        body: { roles: [{ id: MODERATOR, name: 'Moderator', color: 0, position: 1, owner: null }] },
+    }));
     api.on('GET', '/api/guilds', () => ({
         body: { guilds: [{ id: GUILD_ID, name: 'Brat Palace', iconURL: null, memberCount: 3 }] },
     }));
@@ -27,10 +36,11 @@ function serveGuild(
             channels: [
                 { id: RULES, name: 'rules', type: 'text', parentId: null, parentName: null, owner: null },
                 { id: KINK_101, name: 'kink-101', type: 'text', parentId: null, parentName: null, owner: null },
+                { id: INTROS, name: 'introductions', type: 'text', parentId: null, parentName: null, owner: null },
             ],
         },
     }));
-    api.on('GET', CONFIG_PATH, () => ({ body: { contextChannels, ...texts } }));
+    api.on('GET', CONFIG_PATH, () => ({ body: { contextChannels, ...NOTHING_ELSE_SENT, ...texts } }));
 }
 
 function renderPage() {
@@ -51,7 +61,7 @@ describe('ChatAgentConfigPage', () => {
         serveGuild(api, [{ channelId: RULES, isRules: false, channelName: 'rules' }]);
         api.on('PUT', CONFIG_PATH, ({ body }) => ({
             body: {
-                ...NO_TEXTS,
+                ...NOTHING_ELSE_SENT,
                 contextChannels: (body as { contextChannels: { channelId: string; isRules: boolean }[] }).contextChannels.map(
                     (entry) => ({ ...entry, channelName: entry.channelId === RULES ? 'rules' : 'kink-101' })
                 ),
@@ -78,7 +88,7 @@ describe('ChatAgentConfigPage', () => {
     it('removes a channel', async () => {
         const api = installFakeApi();
         serveGuild(api, [{ channelId: RULES, isRules: true, channelName: 'rules' }]);
-        api.on('PUT', CONFIG_PATH, () => ({ body: { contextChannels: [], ...NO_TEXTS } }));
+        api.on('PUT', CONFIG_PATH, () => ({ body: { contextChannels: [], ...NOTHING_ELSE_SENT } }));
         const { user } = renderPage();
 
         await user.click(await screen.findByRole('button', { name: 'Remove #rules' }));
@@ -92,7 +102,7 @@ describe('ChatAgentConfigPage', () => {
         const api = installFakeApi();
         serveGuild(api, [{ channelId: RULES, isRules: true, channelName: 'rules' }], { botRules: 'Be nice-ish.', serverNotes: '' });
         api.on('PUT', CONFIG_PATH, ({ body }) => ({
-            body: { ...(body as object), contextChannels: [{ channelId: RULES, isRules: true, channelName: 'rules' }] },
+            body: { ...NOTHING_ELSE_SENT, ...(body as object), contextChannels: [{ channelId: RULES, isRules: true, channelName: 'rules' }] },
         }));
         const { user } = renderPage();
 
@@ -107,9 +117,40 @@ describe('ChatAgentConfigPage', () => {
         expect(await screen.findByText('Chat agent config saved.')).toBeTruthy();
         expect(api.requests.find((request) => request.method === 'PUT')?.body).toEqual({
             contextChannels: [{ channelId: RULES, isRules: true }],
+            ...NO_TEXTS,
             botRules: 'Never name other servers.',
             serverNotes: 'Munches monthly.',
         });
+    });
+
+    it("picks the bot's own staff roles and its intros channel, and saves them with the rest", async () => {
+        const api = installFakeApi();
+        serveGuild(api, [{ channelId: RULES, isRules: true, channelName: 'rules' }]);
+        api.on('PUT', CONFIG_PATH, ({ body }) => ({
+            body: {
+                ...NOTHING_ELSE_SENT,
+                ...(body as object),
+                contextChannels: [{ channelId: RULES, isRules: true, channelName: 'rules' }],
+                staffRoles: [{ id: MODERATOR, name: 'Moderator' }],
+                introsChannelName: 'introductions',
+            },
+        }));
+        const { user } = renderPage();
+
+        await user.click(await screen.findByRole('textbox', { name: 'Staff roles' }));
+        await user.click(screen.getByRole('option', { name: 'Moderator' }));
+        await user.click(screen.getByRole('textbox', { name: 'Where members introduce themselves' }));
+        await user.click(screen.getByRole('option', { name: '#introductions' }));
+        await user.click(saveButton());
+
+        expect(await screen.findByText('Chat agent config saved.')).toBeTruthy();
+        expect(api.requests.find((request) => request.method === 'PUT')?.body).toEqual({
+            contextChannels: [{ channelId: RULES, isRules: true }],
+            ...NO_TEXTS,
+            staffRoleIds: [MODERATOR],
+            introsChannelId: INTROS,
+        });
+        await waitFor(() => expect(saveButton()).toHaveProperty('disabled', true));
     });
 
     it("holds the save on notes over the limit, with the server's sentence under the box", async () => {

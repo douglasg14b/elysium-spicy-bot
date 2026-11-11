@@ -4,6 +4,7 @@ import { createPerGuildQueue } from '../../shared/perGuildQueue';
 import { CHAT_AGENT_MODEL } from '../../environment';
 import { chatModel } from './agent/chatModel';
 import { handleChatMessage, type ChatAgentDependencies } from './chatAgentHandler';
+import { initIntrosSync } from './intros/introsSync';
 import { ChatRateLimiter } from './safety/rateLimit';
 import { ChatSessions, SESSION_SWEEP_INTERVAL_MS } from './session/chatSessions';
 
@@ -33,6 +34,9 @@ export function initChatAgent(): void {
             console.error('[chat-agent] message handler failed:', error)
         );
     });
+
+    // The copy of each server's intros channel that `getMemberIntro` reads.
+    initIntrosSync(DISCORD_CLIENT);
 
     // Sessions past their day go even where nobody talks to the bot any more. Never holds the process open.
     setInterval(

@@ -28,7 +28,7 @@ function ticketChannelContext(): ChatToolContext {
     return {
         guild: { id: 'guild', name: 'Elysium' } as unknown as Guild,
         channel: { id: 'channel', name: 's42-support-vex', nsfw: false } as unknown as GuildTextBasedChannel,
-        asker: { id: 'vex-id', displayName: 'Vex' } as unknown as GuildMember,
+        asker: { id: 'vex-id', displayName: 'Vex', guild: { id: 'guild' }, roles: { cache: new Map() } } as unknown as GuildMember,
         viewers: [{ id: 'vex-id', displayName: 'Vex' } as unknown as GuildMember],
         viewersCanReadHistory: true,
         ticket,
@@ -36,6 +36,7 @@ function ticketChannelContext(): ChatToolContext {
         serverNotes: '',
         botRules: '',
         staffRoleIds: [],
+        introsChannelId: null,
     };
 }
 
@@ -104,7 +105,7 @@ describe('runChatTurn', () => {
         const [call] = model.doGenerateCalls;
         const system = call.prompt.find((message) => message.role === 'system');
         expect(system?.content).toContain('support ticket');
-        expect(system?.content).toContain('Speaking to you: Vex\n');
+        expect(system?.content).toContain('Speaking to you: Vex (no pronoun role — "they" until you know otherwise)\n');
         expect(system?.content).toContain('Channel: #s42-support-vex');
         expect(call.tools?.map((tool) => tool.name).sort()).toEqual(
             [
@@ -119,6 +120,7 @@ describe('runChatTurn', () => {
                 'readContextChannel',
                 'getTicketInfo',
                 'getUserLevel',
+                'getMemberIntro',
                 'listChannels',
                 'searchRecentMessages',
                 'stayQuiet',

@@ -20,7 +20,7 @@ vi.mock('../../../features-system/guild-settings', () => ({
     },
     DEFAULT_GUILD_TIME_ZONE: 'America/Los_Angeles',
 }));
-const NOTHING_CONFIGURED = { contextChannels: [], serverNotes: '', botRules: '' };
+const NOTHING_CONFIGURED = { contextChannels: [], serverNotes: '', botRules: '', staffRoleIds: [], introsChannelId: null };
 const savedConfig = vi.hoisted(() => ({ current: null as { serverNotes: string; botRules: string } | null }));
 vi.mock('../data/chatAgentConfigRepo', () => ({
     chatAgentConfigRepo: { getConfig: async () => ({ ...NOTHING_CONFIGURED, ...savedConfig.current }) },

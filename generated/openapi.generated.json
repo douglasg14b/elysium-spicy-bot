@@ -1583,6 +1583,7 @@
                 "type": "object"
             },
             "ChatAgentConfig": {
+                "description": "The chat agent's config. `staffRoleIds` are the roles whose members count as staff for its staff-only answers (the owner and Administrators always do); empty means it uses Server Settings' staff roles. `staffRoles` names the ids that still resolve to a role and can be shorter, as on Server Settings: render from `staffRoleIds`, label from `staffRoles`. `introsChannelId` is the channel members introduce themselves in, null when none; `introsChannelName` is its name, null once it is gone.",
                 "properties": {
                     "botRules": {
                         "type": "string"
@@ -1593,14 +1594,62 @@
                         },
                         "type": "array"
                     },
+                    "introsChannelId": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "introsChannelName": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
                     "serverNotes": {
                         "type": "string"
+                    },
+                    "staffRoleIds": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "staffRoles": {
+                        "items": {
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "name": {
+                                    "type": "string"
+                                }
+                            },
+                            "required": [
+                                "id",
+                                "name"
+                            ],
+                            "type": "object"
+                        },
+                        "type": "array"
                     }
                 },
                 "required": [
                     "contextChannels",
                     "botRules",
-                    "serverNotes"
+                    "serverNotes",
+                    "staffRoleIds",
+                    "staffRoles",
+                    "introsChannelId",
+                    "introsChannelName"
                 ],
                 "type": "object"
             },
@@ -1639,18 +1688,50 @@
                             "maxItems": "10 context channels is my limit. Drop one."
                         }
                     },
+                    "introsChannelId": {
+                        "anyOf": [
+                            {
+                                "pattern": "^\\d{17,20}$",
+                                "type": "string",
+                                "x-messages": {
+                                    "pattern": "That's not a channel id. Pick one from the list."
+                                }
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
                     "serverNotes": {
                         "maxLength": 2000,
                         "type": "string",
                         "x-messages": {
                             "maxLength": "Keep the notes to 2,000 characters — I read them before every reply."
                         }
+                    },
+                    "staffRoleIds": {
+                        "items": {
+                            "maxLength": 32,
+                            "minLength": 1,
+                            "type": "string",
+                            "x-messages": {
+                                "maxLength": "That's not a role id. Pick one from the list.",
+                                "minLength": "A staff role needs an id."
+                            }
+                        },
+                        "maxItems": 50,
+                        "type": "array",
+                        "x-messages": {
+                            "maxItems": "That is more staff roles than any server has. Trim the list."
+                        }
                     }
                 },
                 "required": [
                     "contextChannels",
                     "botRules",
-                    "serverNotes"
+                    "serverNotes",
+                    "staffRoleIds",
+                    "introsChannelId"
                 ],
                 "type": "object"
             },

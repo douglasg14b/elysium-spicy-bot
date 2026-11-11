@@ -140,16 +140,20 @@ export const FEATURE_SETUP = {
         const config = await warningsConfigRepo.getByGuildId(guild.id);
         return { modLogChannel: channelLabel(guild, viewers, config?.modChannelId) };
     },
-    chatAgent: async ({ guild, viewers, contextChannels, botRules, serverNotes }) => ({
+    chatAgent: async ({ guild, viewers, contextChannels, botRules, serverNotes, staffRoleIds, introsChannelId }) => ({
         contextChannels: contextChannels.map((entry) => ({
             channel: channelLabel(guild, viewers, entry.channelId),
             rulesChannel: entry.isRules,
         })),
+        introsChannel: channelLabel(guild, viewers, introsChannelId),
+        // The turn's: the Chat Agent page's own staff roles, else Server Settings'.
+        staffRoles: roleLabels(guild, staffRoleIds),
         botRules: botRules || NOT_SET,
         serverNotes: serverNotes || NOT_SET,
     }),
-    serverSettings: async ({ guild, staffRoleIds }) => {
-        const timeZone = await guildSettingsRepo.getTimeZone(guild.id);
+    // Server Settings' own staff roles, read here: the turn's are the chat agent's, which may differ.
+    serverSettings: async ({ guild }) => {
+        const [staffRoleIds, timeZone] = await Promise.all([guildSettingsRepo.getStaffRoleIds(guild.id), guildSettingsRepo.getTimeZone(guild.id)]);
         return {
             staffRoles: roleLabels(guild, staffRoleIds),
             timeZone: timeZone.chosen ?? `${timeZone.effective} (the default; not chosen)`,
