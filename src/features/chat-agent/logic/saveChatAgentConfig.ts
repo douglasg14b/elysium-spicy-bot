@@ -11,7 +11,7 @@ export type SaveChatAgentConfigResult =
 
 /**
  * Validate-and-persist for a guild's chat agent config, the dashboard PUT's one path. Each
- * context channel, and the intros channel, must be a text channel of `guild` the bot can read
+ * context channel, and a newly picked intros channel, must be a text channel of `guild` the bot can read
  * — asked of the guild's channel cache, never of Discord, as `validateWarningsModChannel` does
  * — and each context channel listed once. Staff roles are deduplicated, and each one newly
  * added must be an assignable role of `guild` (`isAssignableRole`); one already saved is left
@@ -35,13 +35,15 @@ export async function saveChatAgentConfig(
         return { ok: false, message: `${channelLabel(guild, duplicate)} is on the list twice. Once is plenty.` };
     }
 
-    const channelIds = [...config.contextChannels.map(({ channelId }) => channelId), ...(config.introsChannelId ? [config.introsChannelId] : [])];
+    const previous = await repo.getConfig(guild.id);
+    // The intros channel is checked only when it changes, as staff roles are: one deleted in Discord since must not make the page unsaveable.
+    const newIntrosChannel = config.introsChannelId && config.introsChannelId !== previous.introsChannelId ? [config.introsChannelId] : [];
+    const channelIds = [...config.contextChannels.map(({ channelId }) => channelId), ...newIntrosChannel];
     for (const channelId of channelIds) {
         const problem = readableTextChannelProblem(guild, channelId);
         if (problem) return { ok: false, message: problem };
     }
 
-    const previous = await repo.getConfig(guild.id);
     const staffRoleIds = [...new Set(config.staffRoleIds)];
     const refused = staffRoleIds.filter((roleId) => !previous.staffRoleIds.includes(roleId) && !isAssignableRole(guild, roleId));
     if (refused.length > 0) return { ok: false, message: describeRefusedRoles(guild, refused, "the chat agent's staff roles") };

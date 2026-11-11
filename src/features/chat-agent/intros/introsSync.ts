@@ -7,8 +7,22 @@ import type { IntroPost } from '../data/chatIntrosSchema';
 import { botCanRead } from '../tools/visibleChannels';
 
 /** How far back a rescan pages: 100 messages a page, so the newest 10,000 posts. */
-const RESCAN_PAGE_LIMIT = 100;
+const RESCAN_MAX_PAGES = 100;
 const PAGE_SIZE = 100;
+
+/**
+ * For each server mid-rescan, the posts the live listeners have written or deleted since it
+ * began. The live write is newer than any page the rescan holds, so the rescan neither
+ * overwrites one (an edit put back to its old text, a delete undone) nor prunes one (a post
+ * that landed after the page that would have held it).
+ */
+const touchedDuringRescan = new Map<string, Set<string>>();
+
+/** Note that the live listeners wrote or deleted these posts of `guildId`, for a rescan running there. */
+export function noteLiveWrite(guildId: string, messageIds: readonly string[]): void {
+    const touched = touchedDuringRescan.get(guildId);
+    if (touched) for (const messageId of messageIds) touched.add(messageId);
+}
 
 /**
  * Each server's intros channel, as saved, so a message anywhere is matched against it without
@@ -58,10 +72,12 @@ function queueRescan(guild: Guild, channelId: string | null): void {
 
 /**
  * Make `guild`'s copy match `channelId`: everything from another channel dropped, then the
- * channel read newest first, {@link RESCAN_PAGE_LIMIT} pages at most, each intro written as
- * it is read. Only a read that reached the channel's first message drops posts the channel no
- * longer has (deleted while the bot was away); a capped one leaves the older ones be. Stops
- * early once `stillSaved` says the channel is no longer the saved one, since the next rescan owns it then.
+ * channel read newest first, {@link RESCAN_MAX_PAGES} pages at most, each intro written as
+ * it is read — except one the live listeners have touched meanwhile ({@link noteLiveWrite}),
+ * whose live write is newer. Only a read that reached the channel's first message drops posts
+ * the channel no longer has (deleted while the bot was away), never a touched one; a capped
+ * read leaves the older ones be. Stops early once `stillSaved` says the channel is no longer
+ * the saved one, since the next rescan owns it then.
  */
 export async function rescanIntros(
     guild: Guild,
@@ -78,22 +94,28 @@ export async function rescanIntros(
         return;
     }
 
-    const seen = new Set<string>();
-    let before: string | undefined;
-    for (let page = 0; page < RESCAN_PAGE_LIMIT; page++) {
-        if (!stillSaved()) return;
-        const messages = await channel.messages.fetch({ limit: PAGE_SIZE, before });
-        const intros = [...messages.values()].filter(isIntroPost).map(toIntroPost);
-        await repo.savePosts(intros);
-        for (const intro of intros) seen.add(intro.messageId);
-        if (messages.size < PAGE_SIZE) {
-            const gone = (await repo.listMessageIds(guild.id, channelId)).filter((messageId) => !seen.has(messageId));
-            await repo.deletePosts(guild.id, gone);
-            return;
+    const touched = new Set<string>();
+    touchedDuringRescan.set(guild.id, touched);
+    try {
+        const seen = new Set<string>();
+        let before: string | undefined;
+        for (let page = 0; page < RESCAN_MAX_PAGES; page++) {
+            if (!stillSaved()) return;
+            const messages = await channel.messages.fetch({ limit: PAGE_SIZE, before });
+            const intros = [...messages.values()].filter(isIntroPost).map(toIntroPost);
+            await repo.savePosts(intros.filter((intro) => !touched.has(intro.messageId)));
+            for (const intro of intros) seen.add(intro.messageId);
+            if (messages.size < PAGE_SIZE) {
+                const held = await repo.listMessageIds(guild.id, channelId);
+                await repo.deletePosts(guild.id, held.filter((messageId) => !seen.has(messageId) && !touched.has(messageId)));
+                return;
+            }
+            before = messages.last()?.id;
         }
-        before = messages.last()?.id;
+        console.warn(`[chat-agent] intros channel ${channelId} of guild ${guild.id} has over ${RESCAN_MAX_PAGES * PAGE_SIZE} messages; only the newest were copied`);
+    } finally {
+        touchedDuringRescan.delete(guild.id);
     }
-    console.warn(`[chat-agent] intros channel ${channelId} of guild ${guild.id} has over ${RESCAN_PAGE_LIMIT * PAGE_SIZE} messages; only the newest were copied`);
 }
 
 /** Whether `message` landed in its server's intros channel. */
@@ -105,8 +127,15 @@ function inIntrosChannel(message: Message | PartialMessage): boolean {
 async function recordPost(message: Message | PartialMessage): Promise<void> {
     const whole = message.partial ? await message.fetch() : message;
     if (!whole.inGuild()) return;
+    noteLiveWrite(whole.guildId, [whole.id]);
     if (isIntroPost(whole)) await chatIntrosRepo.savePosts([toIntroPost(whole)]);
     else await chatIntrosRepo.deletePosts(whole.guildId, [whole.id]);
+}
+
+/** Drop deleted posts from the copy. */
+async function forgetPosts(guildId: string, messageIds: readonly string[]): Promise<void> {
+    noteLiveWrite(guildId, messageIds);
+    await chatIntrosRepo.deletePosts(guildId, messageIds);
 }
 
 /**
@@ -124,24 +153,34 @@ export function initIntrosSync(client: Client): void {
         if (inIntrosChannel(message)) recordPost(message).catch(report('update'));
     });
     client.on(Events.MessageDelete, (message) => {
-        if (message.guildId && inIntrosChannel(message)) chatIntrosRepo.deletePosts(message.guildId, [message.id]).catch(report('forget'));
+        if (message.guildId && inIntrosChannel(message)) forgetPosts(message.guildId, [message.id]).catch(report('forget'));
     });
     client.on(Events.MessageBulkDelete, (messages, channel) => {
-        if (introsChannels.get(channel.guildId) === channel.id) chatIntrosRepo.deletePosts(channel.guildId, [...messages.keys()]).catch(report('forget'));
+        if (introsChannels.get(channel.guildId) === channel.id) forgetPosts(channel.guildId, [...messages.keys()]).catch(report('forget'));
     });
 
     client.once(Events.ClientReady, (readyClient) => {
-        loadIntrosChannels(readyClient).catch((error: unknown) => console.error('[chat-agent] could not load the intros channels:', error));
+        void loadIntrosChannels(readyClient);
+    });
+    // A server unavailable at ready had no channels to read then; read it once it is back.
+    client.on(Events.GuildAvailable, (guild) => {
+        const channelId = introsChannels.get(guild.id);
+        if (channelId) queueRescan(guild, channelId);
     });
 }
 
-/** Each allowed server's saved intros channel into the map, and a rescan queued for each. */
+/** Each allowed server's saved intros channel into the map, and a rescan queued for each; one server's failure skips only it. */
 async function loadIntrosChannels(client: Client<true>): Promise<void> {
     for (const guild of client.guilds.cache.values()) {
         if (!isGuildAllowed(guild.id, ALLOWED_GUILD_IDS)) continue;
-        const { introsChannelId } = await chatAgentConfigRepo.getConfig(guild.id);
-        if (!introsChannelId) continue;
-        introsChannels.set(guild.id, introsChannelId);
-        queueRescan(guild, introsChannelId);
+        try {
+            const { introsChannelId } = await chatAgentConfigRepo.getConfig(guild.id);
+            // A save while the config was read has already set the map and queued its own rescan.
+            if (!introsChannelId || introsChannels.has(guild.id)) continue;
+            introsChannels.set(guild.id, introsChannelId);
+            queueRescan(guild, introsChannelId);
+        } catch (error) {
+            console.error(`[chat-agent] could not load the intros channel of guild ${guild.id}:`, error);
+        }
     }
 }

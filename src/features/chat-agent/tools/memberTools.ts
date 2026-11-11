@@ -111,7 +111,7 @@ export function getUserLevelTool(context: ChatToolContext) {
         inputSchema: memberInput,
         execute: async ({ member: query }) => {
             const refusal = staffOnlyRefusal(context, LEVEL_REFUSALS);
-            if (refusal) return { answered: false as const, ...refusal };
+            if (refusal) return { found: false as const, ...refusal };
             const member = await resolveMember(context, query);
             if (!member) return { found: false as const, note: `Nobody here matches "${query}".` };
             const profile = await loadUserLevelProfile(context.guild.id, member.id);

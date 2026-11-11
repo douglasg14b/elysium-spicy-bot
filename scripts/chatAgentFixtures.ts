@@ -165,7 +165,7 @@ function cannedResult(toolName: keyof ChatTools, input: unknown, inTicket: boole
                 roles: inTicket ? ['Newcomer', 'Ask to DM'] : ['Verified', 'Ask to DM'],
             };
         case 'getUserLevel':
-            if (staffAccess !== 'allowed') return { answered: false, ...LEVEL_REFUSALS[staffAccess] };
+            if (staffAccess !== 'allowed') return { found: false, ...LEVEL_REFUSALS[staffAccess] };
             if (!isAsker(input)) return { found: false, note: `Nobody here matches "${String((input as { member?: string }).member)}".` };
             return { found: true, displayName: FIXTURE_ASKER_NAME, ...FIXTURE_FACTS.level, hasAnyActivity: true };
         case 'getMemberIntro': {

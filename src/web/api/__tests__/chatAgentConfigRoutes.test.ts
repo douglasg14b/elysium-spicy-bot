@@ -339,4 +339,14 @@ describe('PUT /:guildId/config/chat-agent', () => {
         expect(repoMock.saveConfig).not.toHaveBeenCalled();
         expect(introsChannelSaved).not.toHaveBeenCalled();
     });
+
+    it('keeps an intros channel saved before and deleted since, so the page stays saveable', async () => {
+        const deleted = '199999999999999999';
+        repoMock.getConfig.mockResolvedValue({ contextChannels: [], ...NOTHING_ELSE, introsChannelId: deleted });
+
+        const response = await putConfig({ contextChannels: [], ...NOTHING_ELSE, introsChannelId: deleted, serverNotes: 'Munches monthly.' });
+
+        expect(response.status).toBe(200);
+        expect(((await response.json()) as { introsChannelName: unknown }).introsChannelName).toBeNull();
+    });
 });

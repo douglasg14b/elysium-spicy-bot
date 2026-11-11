@@ -2,7 +2,7 @@ import { ChannelType, Collection, MessageType, type Guild, type Message } from '
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ChatIntrosRepo } from '../../data/chatIntrosRepo';
 import { chatIntrosTestDb } from '../../data/__tests__/support/chatIntrosTestDb';
-import { isIntroPost, rescanIntros } from '../introsSync';
+import { isIntroPost, noteLiveWrite, rescanIntros } from '../introsSync';
 
 const GUILD = 'guild-1';
 const INTROS = 'intros';
@@ -23,8 +23,11 @@ function message({ id, author, content = `hi, I'm ${author}`, bot = false, type 
     } as unknown as Message<true>;
 }
 
-/** A guild whose intros channel holds `posts`, newest first, paged as Discord pages: 100 at most, before an id. */
-function guildWith(posts: readonly FakePost[]) {
+/**
+ * A guild whose intros channel holds `posts`, newest first, paged as Discord pages: 100 at most,
+ * before an id. `whileFetching` runs as each page is fetched, as a live event landing mid-rescan would.
+ */
+function guildWith(posts: readonly FakePost[], whileFetching: (page: number) => Promise<void> = async () => undefined) {
     const pagesFetched: (string | undefined)[] = [];
     const messages = posts.map(message);
     const channel = {
@@ -33,6 +36,7 @@ function guildWith(posts: readonly FakePost[]) {
         permissionsFor: () => ({ has: () => true }),
         messages: {
             fetch: async ({ limit, before }: { limit: number; before?: string }) => {
+                await whileFetching(pagesFetched.length);
                 pagesFetched.push(before);
                 const start = before ? messages.findIndex((candidate) => candidate.id === before) + 1 : 0;
                 return new Collection(messages.slice(start, start + limit).map((candidate) => [candidate.id, candidate]));
@@ -75,6 +79,24 @@ describe('rescanIntros', () => {
         expect(held).toHaveLength(150);
         expect(held).not.toContain('gone');
         expect(held).not.toContain('m0');
+    });
+
+    it('leaves what the live listeners wrote meanwhile: a post that landed mid-scan is kept, one deleted mid-scan stays deleted', async () => {
+        const { guild } = guildWith(manyPosts(150), async (page) => {
+            if (page !== 1) return;
+            // Between the pages: a new intro arrives (newer than page 0, so on no page), and m40 is deleted — on page 1, whose fetch still has it.
+            noteLiveWrite(GUILD, ['new']);
+            await repo.savePosts([{ messageId: 'new', guildId: GUILD, channelId: INTROS, authorId: 'newbie', content: 'hi!', postedAt: new Date() }]);
+            noteLiveWrite(GUILD, ['m40']);
+            await repo.deletePosts(GUILD, ['m40']);
+        });
+
+        await rescanIntros(guild, INTROS, repo, () => true);
+
+        const held = await repo.listMessageIds(GUILD, INTROS);
+        expect(held).toContain('new');
+        expect(held).not.toContain('m40');
+        expect(held).toHaveLength(150);
     });
 
     it('stops once the channel is no longer the saved one, leaving the rest to the next rescan', async () => {

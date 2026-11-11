@@ -61,14 +61,14 @@ describe('getUserLevel', () => {
         loadUserLevelProfile.mockClear();
         const answer = await run(getUserLevelTool(contextFor([vex, mod])), {});
 
-        expect(answer).toMatchObject({ answered: false, tellThem: expect.stringContaining('/level') });
+        expect(answer).toMatchObject({ found: false, tellThem: expect.stringContaining('/level') });
         expect(JSON.stringify(answer)).not.toMatch(/\b(7|260|1240)\b/);
         expect(loadUserLevelProfile).not.toHaveBeenCalled();
     });
 
     it('nor staff, where members can read along', async () => {
         expect(await run(getUserLevelTool(contextFor([mod, vex])), { member: 'vex' })).toMatchObject({
-            answered: false,
+            found: false,
             reason: expect.stringContaining("People who aren't staff"),
         });
     });

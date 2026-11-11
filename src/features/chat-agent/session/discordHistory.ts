@@ -96,13 +96,26 @@ export function describeContent(message: Message, viewers: Viewers): string {
 }
 
 function resolveMentions(message: Message, viewers: Viewers): string {
-    return message.content
-        .replace(/<@!?(\d+)>/g, (_match, userId: string) => {
-            const member = message.mentions.members?.get(userId);
-            const user = message.mentions.users.get(userId);
-            return `@${member?.displayName ?? user?.displayName ?? 'someone'}`;
-        })
-        .replace(/<@&(\d+)>/g, (_match, roleId: string) => `@${message.mentions.roles.get(roleId)?.name ?? 'role'}`)
+    return resolveMentionMarkup(message.content, viewers, {
+        member: (userId) => message.mentions.members?.get(userId)?.displayName ?? message.mentions.users.get(userId)?.displayName,
+        role: (roleId) => message.mentions.roles.get(roleId)?.name,
+    });
+}
+
+/** Where a mention's name comes from: a live message's `mentions`, or the guild's caches for stored text. */
+export type MentionNames = {
+    readonly member: (userId: string) => string | undefined;
+    readonly role: (roleId: string) => string | undefined;
+};
+
+/**
+ * Discord markup in `text` as its readers would see it: members and roles by name, a channel
+ * only when every viewer can see it (else `#unknown-channel`), custom emoji as `:name:`.
+ */
+export function resolveMentionMarkup(text: string, viewers: Viewers, names: MentionNames): string {
+    return text
+        .replace(/<@!?(\d+)>/g, (_match, userId: string) => `@${names.member(userId) ?? 'someone'}`)
+        .replace(/<@&(\d+)>/g, (_match, roleId: string) => `@${names.role(roleId) ?? 'role'}`)
         .replace(/<#(\d+)>/g, (_match, channelId: string) => {
             const channel = viewers[0].guild.channels.cache.get(channelId);
             return channel && everyoneCanSee(viewers, channel) ? `#${channel.name}` : '#unknown-channel';
