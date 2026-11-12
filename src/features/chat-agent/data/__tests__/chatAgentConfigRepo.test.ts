@@ -45,10 +45,31 @@ describe('ChatAgentConfigRepo', () => {
     });
 
     it('round-trips the config through the JSON column, channels in order, booleans intact', async () => {
-        const config = { contextChannels: [KINK_101, RULES], serverNotes: 'Munches are the first Saturday.', botRules: 'Never recommend other servers.' };
+        const config = {
+            contextChannels: [KINK_101, RULES],
+            serverNotes: 'Munches are the first Saturday.',
+            botRules: 'Never recommend other servers.',
+            staffRoleIds: ['300000000000000001', '300000000000000002'],
+            introsChannelId: '100000000000000003',
+        };
         expect(await repo.saveConfig(GUILD, config)).toEqual(config);
         expect(await repo.getConfig(GUILD)).toEqual(config);
         expect(await repo.getConfig('guild-2')).toEqual(EMPTY_CHAT_AGENT_CONFIG);
+    });
+
+    it('reads a row saved before staff roles and the intros channel existed as having none of either', async () => {
+        const now = new Date().toISOString();
+        const before = { contextChannels: [RULES], serverNotes: 'Old notes.', botRules: '' };
+        await db
+            .insertInto('chat_agent_config')
+            .values({ guildId: GUILD, config: JSON.stringify(before), createdAt: now, updatedAt: now, configVersion: 1 })
+            .execute();
+        expect(await repo.getConfig(GUILD)).toEqual({ ...before, staffRoleIds: [], introsChannelId: null });
+    });
+
+    it('refuses a staff role listed twice, storing nothing', async () => {
+        await expect(repo.saveConfig(GUILD, { ...EMPTY_CHAT_AGENT_CONFIG, staffRoleIds: ['300000000000000001', '300000000000000001'] })).rejects.toThrow();
+        expect(await repo.getConfig(GUILD)).toEqual(EMPTY_CHAT_AGENT_CONFIG);
     });
 
     it('stores the texts trimmed', async () => {
@@ -57,7 +78,7 @@ describe('ChatAgentConfigRepo', () => {
     });
 
     it('replaces the config on a second write, keeping one row per guild', async () => {
-        await repo.saveConfig(GUILD, { contextChannels: [RULES, KINK_101], serverNotes: 'Old notes.', botRules: 'Old rules.' });
+        await repo.saveConfig(GUILD, { ...EMPTY_CHAT_AGENT_CONFIG, contextChannels: [RULES, KINK_101], serverNotes: 'Old notes.', botRules: 'Old rules.' });
         await repo.saveConfig(GUILD, { ...EMPTY_CHAT_AGENT_CONFIG, contextChannels: [RULES] });
         expect(await repo.getConfig(GUILD)).toEqual({ ...EMPTY_CHAT_AGENT_CONFIG, contextChannels: [RULES] });
         await repo.saveConfig(GUILD, EMPTY_CHAT_AGENT_CONFIG);

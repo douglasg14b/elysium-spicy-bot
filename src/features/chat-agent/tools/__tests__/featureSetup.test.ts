@@ -132,6 +132,8 @@ describe('feature setup', () => {
     it("tells the chat agent's setup and the staff roles from the turn, its hidden context channel unnamed", async () => {
         expect(await FEATURE_SETUP.chatAgent(CONTEXT)).toEqual({
             contextChannels: [{ channel: 'a channel not everyone here can see', rulesChannel: false }],
+            introsChannel: 'not set',
+            staffRoles: ['@Mods'],
             botRules: 'Never ping @everyone.',
             serverNotes: 'not set',
         });

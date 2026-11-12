@@ -45,6 +45,7 @@ function contextFor(viewers: Viewers): ChatToolContext {
         serverNotes: '',
         botRules: '',
         staffRoleIds: [STAFF_ROLE],
+        introsChannelId: null,
     };
 }
 

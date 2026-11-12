@@ -413,10 +413,20 @@ export type ButtonListener = {
     nodeId: string;
 };
 
+/**
+ * The chat agent's config. `staffRoleIds` are the roles whose members count as staff for its staff-only answers (the owner and Administrators always do); empty means it uses Server Settings' staff roles. `staffRoles` names the ids that still resolve to a role and can be shorter, as on Server Settings: render from `staffRoleIds`, label from `staffRoles`. `introsChannelId` is the channel members introduce themselves in, null when none; `introsChannelName` is its name, null once it is gone.
+ */
 export type ChatAgentConfig = {
     botRules: string;
     contextChannels: Array<ChatAgentContextChannel>;
+    introsChannelId: string | null;
+    introsChannelName: string | null;
     serverNotes: string;
+    staffRoleIds: Array<string>;
+    staffRoles: Array<{
+        id: string;
+        name: string;
+    }>;
 };
 
 export type ChatAgentConfigUpdate = {
@@ -425,7 +435,9 @@ export type ChatAgentConfigUpdate = {
         channelId: string;
         isRules: boolean;
     }>;
+    introsChannelId: string | null;
     serverNotes: string;
+    staffRoleIds: Array<string>;
 };
 
 export type ChatAgentContextChannel = {

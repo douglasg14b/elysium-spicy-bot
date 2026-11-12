@@ -28,9 +28,25 @@ export type ChatToolContext = {
     readonly serverNotes: string;
     /** The admins' rules for the agent on this server, for the instructions; empty when none. */
     readonly botRules: string;
-    /** The server's staff roles (Server Settings): with the owner and Administrators, who may ask about the bot's features. */
+    /**
+     * Who is staff to the agent: with the owner and Administrators, who may ask its staff-only
+     * questions (`staffAccess.ts`). The chat agent's own staff roles when it has any, else
+     * Server Settings' — {@link agentStaffRoleIds}.
+     */
     readonly staffRoleIds: readonly string[];
+    /** The server's intros channel (`getMemberIntro`), as saved — unchecked against the asker; the read is. Null when none. */
+    readonly introsChannelId: string | null;
 };
+
+/**
+ * The roles that make someone staff to the chat agent: its own list when the server has set
+ * one, else Server Settings' staff roles. Its own list exists so moderators can be staff to
+ * the agent without being staff on the dashboard; a server that never set one keeps the agent
+ * on Server Settings'.
+ */
+export function agentStaffRoleIds(chatAgentStaffRoleIds: readonly string[], serverStaffRoleIds: readonly string[]): readonly string[] {
+    return chatAgentStaffRoleIds.length > 0 ? chatAgentStaffRoleIds : serverStaffRoleIds;
+}
 
 /** The ticket `channelId` is, unless it is deleted; null when it is not a ticket. */
 export async function findLiveTicket(channelId: string): Promise<TicketEntity | null> {
@@ -51,7 +67,7 @@ export async function buildChatToolContext(
     // events alone, so after a restart a member of it would be no viewer at all.
     if (channel.type === ChannelType.PrivateThread) await channel.members.fetch();
     const viewers = viewersOf(channel, asker);
-    const [config, staffRoleIds] = await Promise.all([
+    const [config, serverStaffRoleIds] = await Promise.all([
         chatAgentConfigRepo.getConfig(channel.guild.id),
         guildSettingsRepo.getStaffRoleIds(channel.guild.id),
     ]);
@@ -65,6 +81,7 @@ export async function buildChatToolContext(
         contextChannels: config.contextChannels,
         serverNotes: config.serverNotes,
         botRules: config.botRules,
-        staffRoleIds,
+        staffRoleIds: agentStaffRoleIds(config.staffRoleIds, serverStaffRoleIds),
+        introsChannelId: config.introsChannelId,
     };
 }

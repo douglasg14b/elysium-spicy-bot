@@ -203,7 +203,9 @@ export const zChatAgentConfigUpdate = z.object({
         channelId: z.string().regex(/^\d{17,20}$/, 'That\'s not a channel id. Pick one from the list.'),
         isRules: z.boolean()
     })).max(10, '10 context channels is my limit. Drop one.'),
-    serverNotes: z.string().max(2000, 'Keep the notes to 2,000 characters — I read them before every reply.')
+    introsChannelId: z.string().regex(/^\d{17,20}$/, 'That\'s not a channel id. Pick one from the list.').nullable(),
+    serverNotes: z.string().max(2000, 'Keep the notes to 2,000 characters — I read them before every reply.'),
+    staffRoleIds: z.array(z.string().min(1, 'A staff role needs an id.').max(32, 'That\'s not a role id. Pick one from the list.')).max(50, 'That is more staff roles than any server has. Trim the list.')
 });
 
 export const zChatAgentContextChannel = z.object({
@@ -212,10 +214,20 @@ export const zChatAgentContextChannel = z.object({
     isRules: z.boolean()
 });
 
+/**
+ * The chat agent's config. `staffRoleIds` are the roles whose members count as staff for its staff-only answers (the owner and Administrators always do); empty means it uses Server Settings' staff roles. `staffRoles` names the ids that still resolve to a role and can be shorter, as on Server Settings: render from `staffRoleIds`, label from `staffRoles`. `introsChannelId` is the channel members introduce themselves in, null when none; `introsChannelName` is its name, null once it is gone.
+ */
 export const zChatAgentConfig = z.object({
     botRules: z.string(),
     contextChannels: z.array(zChatAgentContextChannel),
-    serverNotes: z.string()
+    introsChannelId: z.string().nullable(),
+    introsChannelName: z.string().nullable(),
+    serverNotes: z.string(),
+    staffRoleIds: z.array(z.string()),
+    staffRoles: z.array(z.object({
+        id: z.string(),
+        name: z.string()
+    }))
 });
 
 /**

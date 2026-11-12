@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ChatToolContext } from '../../tools/chatToolContext';
 import { buildChatInstructions } from '../chatInstructions';
 
-const ASKER = { id: 'vex-id', displayName: 'Vex' } as unknown as GuildMember;
+const ASKER = { id: 'vex-id', displayName: 'Vex', guild: { id: 'guild' }, roles: { cache: new Map() } } as unknown as GuildMember;
 const CONTEXT = {
     guild: { name: 'Elysium' } as unknown as Guild,
     channel: { name: 'general', nsfw: false } as unknown as GuildTextBasedChannel,
@@ -14,6 +14,7 @@ const CONTEXT = {
     serverNotes: '',
     botRules: '',
     staffRoleIds: [],
+    introsChannelId: null,
     ticket: null,
 } satisfies ChatToolContext;
 
@@ -29,6 +30,18 @@ describe('buildChatInstructions', () => {
         const instructions = buildChatInstructions(CONTEXT, 'BrattyBot', 'You are someone else.');
         expect(instructions.startsWith('You are someone else.')).toBe(true);
         expect(instructions).toContain('Never invent a rule, channel or role.');
+        expect(instructions).toContain('Pronouns: call people "they" by default');
+    });
+
+    it("names the asker's pronouns from their pronoun roles, and says to use they when they have none", () => {
+        const roles = new Map([
+            ['1', { id: '1', name: 'she/her', position: 1 }],
+            ['2', { id: '2', name: 'Verified', position: 2 }],
+        ]);
+        const mara = { ...ASKER, displayName: 'Mara', roles: { cache: roles } } as unknown as GuildMember;
+
+        expect(buildChatInstructions({ ...CONTEXT, asker: mara, viewers: [mara] }, 'BrattyBot')).toContain('Speaking to you: Mara (pronouns: she/her)\n');
+        expect(buildChatInstructions(CONTEXT, 'BrattyBot')).toContain('Speaking to you: Vex (no pronoun role — "they" until you know otherwise)\n');
     });
 
     it("puts the admins' rules and notes in, fenced as theirs, and nothing of them when unwritten", () => {

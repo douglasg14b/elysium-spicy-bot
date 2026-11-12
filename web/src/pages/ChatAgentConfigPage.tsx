@@ -8,6 +8,7 @@ import {
     Checkbox,
     Group,
     Loader,
+    MultiSelect,
     Select,
     Stack,
     Text,
@@ -15,13 +16,14 @@ import {
     Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle, IconGavel, IconMessageChatbot, IconNotes, IconX } from '@tabler/icons-react';
+import { IconAlertTriangle, IconGavel, IconHandStop, IconMessageChatbot, IconNotes, IconUserCircle, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     ApiError,
     getChatAgentConfigOptions,
     getChatAgentConfigQueryKey,
     getGuildChannelsOptions,
+    getGuildRolesOptions,
     updateChatAgentConfigMutation,
     zUpdateChatAgentConfigBody,
     type ChatAgentConfigUpdate,
@@ -46,8 +48,8 @@ const GUIDANCE_LIMIT: Record<GuidanceKey, number | null> = {
 
 /**
  * The chat agent's config for the selected guild: the channels it reads when someone @s it,
- * each optionally marked as a rules channel, and the admins' rules for it and notes about the
- * server. Laid out as `WarningsConfigPage`.
+ * each optionally marked as a rules channel, its intros channel, who counts as staff to it, and
+ * the admins' rules for it and notes about the server. Laid out as `WarningsConfigPage`.
  */
 export function ChatAgentConfigPage() {
     const { selected, loading: guildsLoading } = useGuilds();
@@ -84,8 +86,8 @@ export function ChatAgentConfigPage() {
                     </Title>
                 </Group>
                 <Text c="dimmed" size="13.5px" mt={4} maw={540}>
-                    What the bot knows and how it behaves when someone @s it: the channels it reads, your rules
-                    for it, and notes about the server it can pass on.
+                    What the bot knows and how it behaves when someone @s it: the channels it reads, who it
+                    treats as staff, your rules for it, and notes about the server it can pass on.
                 </Text>
             </div>
 
@@ -104,6 +106,7 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
     const queryClient = useQueryClient();
     const config = useQuery(getChatAgentConfigOptions({ path: { guildId } }));
     const channels = useQuery(getGuildChannelsOptions({ path: { guildId } }));
+    const roles = useQuery(getGuildRolesOptions({ path: { guildId } }));
     const configKey = getChatAgentConfigQueryKey({ path: { guildId } });
 
     // Only the fields the operator changed: the rest follow what is saved, so a refetch (another tab's save) is not undone.
@@ -132,6 +135,8 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
             contextChannels: (config.data?.contextChannels ?? []).map(({ channelId, isRules }) => ({ channelId, isRules })),
             botRules: config.data?.botRules ?? '',
             serverNotes: config.data?.serverNotes ?? '',
+            staffRoleIds: config.data?.staffRoleIds ?? [],
+            introsChannelId: config.data?.introsChannelId ?? null,
         }),
         [config.data]
     );
@@ -146,6 +151,27 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
         .filter((channel) => !list.some((entry) => entry.channelId === channel.id))
         .map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
 
+    // The intros channel picker: postable text channels, plus the saved one once it is gone, so the control still shows what is stored.
+    const introsOptions = textChannels.map((channel) => ({ value: channel.id, label: channelOptionLabel(channel) }));
+    if (current.introsChannelId && !textChannels.some((channel) => channel.id === current.introsChannelId)) {
+        const savedName = config.data?.introsChannelName;
+        introsOptions.push({ value: current.introsChannelId, label: savedName ? `#${savedName}` : 'Deleted channel' });
+    }
+
+    /*
+     * The staff role picker: the guild's live roles, plus any saved id that no longer resolves
+     * to one — as Server Settings does, so a deleted role stays visible rather than being
+     * dropped unseen by the next save.
+     */
+    const roleOptions = useMemo(() => {
+        const guildRoles = roles.data?.roles ?? [];
+        const knownIds = new Set(guildRoles.map((role) => role.id));
+        const orphaned = current.staffRoleIds
+            .filter((roleId) => !knownIds.has(roleId))
+            .map((roleId) => ({ value: roleId, label: `Deleted role (${roleId})` }));
+        return [...guildRoles.map((role) => ({ value: role.id, label: role.name })), ...orphaned];
+    }, [roles.data, current.staffRoleIds]);
+
     /** A row's name: from the directory, else as last saved, else gone. */
     function channelName(channelId: string): string {
         const listed = textChannels.find((channel) => channel.id === channelId);
@@ -155,9 +181,15 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
     }
 
     const saving = useSaveInFlight(configKey);
+    // Staff roles compared as sets, as Server Settings does: the server stores them once each.
+    const savedStaff = new Set(saved.staffRoleIds);
+    const draftStaff = new Set(current.staffRoleIds);
     const pristine =
         sent.botRules === saved.botRules &&
         sent.serverNotes === saved.serverNotes &&
+        sent.introsChannelId === saved.introsChannelId &&
+        draftStaff.size === savedStaff.size &&
+        [...draftStaff].every((roleId) => savedStaff.has(roleId)) &&
         list.length === saved.contextChannels.length &&
         list.every(
             (entry, index) =>
@@ -203,8 +235,8 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
     }
 
     // As on the warnings page: an error wins over the spinner only while something is still missing.
-    const loaded = !!config.data && !!channels.data;
-    const loadError = config.error ?? channels.error;
+    const loaded = !!config.data && !!channels.data && !!roles.data;
+    const loadError = config.error ?? channels.error ?? roles.error;
     if (loadError && !loaded) {
         return (
             <Alert color="red" icon={<IconAlertTriangle size={16} />} title="Couldn't load config">
@@ -281,6 +313,38 @@ function ChatAgentConfigForm({ guildId }: ChatAgentConfigFormProps) {
                         disabled={saving}
                     />
                 </Stack>
+            </Card>
+
+            <Card p="xl" maw={640}>
+                <SectionHeading icon={<IconUserCircle size={18} color="var(--mantine-color-brand-6)" />} title="Intros channel" />
+                <Select
+                    label="Where members introduce themselves"
+                    description="It keeps a copy of everyone's intro, so it knows who it's talking to — and their pronouns, when they gave them. Only used where everyone reading can see this channel."
+                    placeholder="No intros channel"
+                    data={introsOptions}
+                    value={current.introsChannelId}
+                    onChange={(introsChannelId) => setDraft({ ...draft, introsChannelId })}
+                    searchable
+                    clearable
+                    nothingFoundMessage="No text channels found"
+                    disabled={saving}
+                />
+            </Card>
+
+            <Card p="xl" maw={640}>
+                <SectionHeading icon={<IconHandStop size={18} color="var(--mantine-color-brand-6)" />} title="Staff, as far as the bot cares" />
+                <MultiSelect
+                    label="Staff roles"
+                    description="Who it answers staff-only questions for — tickets, other channels' messages, who can see what, levels and XP — and only where everyone reading is one of them. Separate from Server Settings, so your mods can count here without getting the keys to the dashboard. The owner and Administrators always count. Leave it empty and it uses Server Settings' staff roles."
+                    placeholder={current.staffRoleIds.length ? undefined : "Server Settings' staff roles"}
+                    data={roleOptions}
+                    value={[...current.staffRoleIds]}
+                    onChange={(staffRoleIds) => setDraft({ ...draft, staffRoleIds })}
+                    searchable
+                    clearable
+                    nothingFoundMessage="No roles found"
+                    disabled={saving}
+                />
             </Card>
 
             <Card p="xl" maw={640}>

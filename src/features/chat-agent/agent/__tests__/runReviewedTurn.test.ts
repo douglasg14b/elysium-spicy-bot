@@ -13,7 +13,7 @@ const USAGE = {
 
 /** A server with no channels, members or roles: nothing links, so a #name is made up. */
 const guild = { id: 'guild', name: 'Elysium', channels: { cache: new Map() }, members: { cache: new Map() }, roles: { cache: new Map() } };
-const vex = { id: 'vex', displayName: 'Vex', guild } as unknown as GuildMember;
+const vex = { id: 'vex', displayName: 'Vex', guild, roles: { cache: new Map() } } as unknown as GuildMember;
 const CONTEXT: ChatToolContext = {
     guild: guild as unknown as Guild,
     channel: { id: 'channel', name: 'general', nsfw: false } as unknown as GuildTextBasedChannel,
@@ -25,6 +25,7 @@ const CONTEXT: ChatToolContext = {
     serverNotes: '',
     botRules: '',
     staffRoleIds: [],
+    introsChannelId: null,
 };
 const REVIEW: ReviewContext = { viewers: [vex], inTicket: false, botName: 'BrattyBot', toolNames: [] };
 
